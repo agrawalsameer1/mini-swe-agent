@@ -7,13 +7,25 @@ import logging
 import traceback
 from pathlib import Path
 
+import time
+
 from jinja2 import StrictUndefined, Template
 from pydantic import BaseModel
+
+import os
+
+import litellm
+import copy
 
 from minisweagent import Environment, Model, __version__
 from minisweagent.exceptions import InterruptAgentFlow, LimitsExceeded
 from minisweagent.utils.serialize import recursive_merge
+from minisweagent.models.litellm_model import LitellmModel
 
+import vertexai
+from vertexai.generative_models import GenerativeModel
+
+MAXTOKENS = 4096
 
 class AgentConfig(BaseModel):
     """Check the config files in minisweagent/config for example settings."""
@@ -28,13 +40,15 @@ class AgentConfig(BaseModel):
     """Stop agent after exceeding (!) this cost."""
     output_path: Path | None = None
     """Save the trajectory to this path."""
-
+    steps: int = 0
 
 class DefaultAgent:
     def __init__(self, model: Model, env: Environment, *, config_class: type = AgentConfig, **kwargs):
         """See the `AgentConfig` class for permitted keyword arguments."""
         self.config = config_class(**kwargs)
+        self.config.step_limit = 70
         self.messages: list[dict] = []
+        self.messages2: list[dict] = []
         self.model = model
         self.env = env
         self.extra_template_vars = {}
@@ -60,6 +74,11 @@ class DefaultAgent:
         self.messages.extend(messages)
         return list(messages)
 
+    def add_messages2(self, *messages: dict) -> list[dict]:
+        self.logger.debug(messages)  # set log level to debug to see
+        self.messages2.extend(messages)
+        return list(messages)
+
     def handle_uncaught_exception(self, e: Exception) -> list[dict]:
         return self.add_messages(
             self.model.format_message(
@@ -82,6 +101,7 @@ class DefaultAgent:
             self.model.format_message(role="system", content=self._render_template(self.config.system_template)),
             self.model.format_message(role="user", content=self._render_template(self.config.instance_template)),
         )
+        
         while True:
             try:
                 self.step()
@@ -93,15 +113,13 @@ class DefaultAgent:
             finally:
                 self.save(self.config.output_path)
             if self.messages[-1].get("role") == "exit":
+                print("Final token count: " + str(litellm.token_counter(model=self.model.config.model_name, messages=self.messages)))
                 break
+
         return self.messages[-1].get("extra", {})
 
-    def step(self) -> list[dict]:
-        """Query the LM, execute actions."""
-        return self.execute_actions(self.query())
-
     def query(self) -> dict:
-        """Query the model and return model messages. Override to add hooks."""
+        #Query the model and return model messages. Override to add hooks.
         if 0 < self.config.step_limit <= self.n_calls or 0 < self.config.cost_limit <= self.cost:
             raise LimitsExceeded(
                 {
@@ -110,11 +128,97 @@ class DefaultAgent:
                     "extra": {"exit_status": "LimitsExceeded", "submission": ""},
                 }
             )
+
         self.n_calls += 1
         message = self.model.query(self.messages)
         self.cost += message.get("extra", {}).get("cost", 0.0)
         self.add_messages(message)
+        
+        """
+        while litellm.token_counter(model=self.model.config.model_name, messages=self.messages) > MAXTOKENS:
+            self.messages.pop(2)
+            while self.messages[2]["role"] != "assistant":
+                self.messages.pop(2)
+        """
+
         return message
+
+    def step(self) -> list[dict]:
+        self.execute_actions(self.query())
+        if self.messages[-1].get("role") == "exit":
+            return
+
+        if litellm.token_counter(model=self.model.config.model_name, messages=self.messages) > MAXTOKENS:
+            model2content = """Your role: You are a Summarizer Agent.\n
+Your task: You will receive an Interaction History (a list of tool calls and outputs from a primary coding agent).\n
+Synthesize this information into a brief, factual summary. The summary's purpose is to provide a condensed "memory" for the primary agent so it can decide its next action to solve its task.\n
+The summary must capture:\n
+1. The main objective.\n
+2. Key actions taken and their results (e.g., files read, commands run).\n
+3. Critical discoveries (e.g., location of a bug, relevant code snippets).\n
+4. Failures or dead ends encountered.\n
+5. The current state or focus of the investigation.\n
+Output: Return ONLY the plain-text summary. Do not use JSON, Markdown, or any other formatting.\n
+To assist you, here are the original system prompts given to the coding agent. NOTE that you do not have to include these in your summary, as these will always be passed in full to the coding agent:\n"""
+            model2content += (self.messages[0]["content"] + "\n" + self.messages[1]["content"] + "\n\n\n\nINTERACTION HISTORY:\n")
+            
+            # Truncate history if too large
+            history_str = str(self.messages[2:])
+            last_assistant_idx = -1
+            for i in range(len(self.messages) - 1, -1, -1):
+                if self.messages[i].get("role") == "assistant":
+                    last_assistant_idx = i
+                    break
+            messages_to_keep = []
+            messages_to_summarize = []
+        # Keep messages from the last assistant onwards (last step)
+            if last_assistant_idx != -1:
+                messages_to_keep = self.messages[last_assistant_idx:]
+                messages_to_summarize = self.messages[2:last_assistant_idx]
+            else:
+            # No assistant message found, summarize everything except system/user
+                messages_to_keep = []
+                messages_to_summarize = self.messages[2:]
+             
+            vertexai.init(project=os.environ.get("VERTEX_PROJECT_ID"), location="us-central1")
+            model2content += str(messages_to_summarize)
+            # Exponential backoff retry logic
+            max_retries = 5
+            base_delay = 2  # seconds
+            
+            for attempt in range(max_retries):
+                try:
+                    # Use stable model instead of experimental
+                    summarizer = GenerativeModel("gemini-2.5-pro")
+                    response = summarizer.generate_content(model2content)
+                    summary_text = response.text
+                    
+                    print("\n\n\nSUMMARY:")
+                    print(summary_text)
+                    break  # Success, exit retry loop
+                    
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        # Calculate exponential backoff delay
+                        delay = base_delay * (2 ** attempt)
+                        print(f"Summarization attempt {attempt + 1} failed: {e}")
+                        print(f"Retrying in {delay} seconds...")
+                        time.sleep(delay)
+                    else:
+                        # Final attempt failed, use fallback
+                        print(f"Summarization failed after {max_retries} attempts: {e}")
+                        summary_text = "[Previous context truncated - summarization unavailable]"
+        
+            # Reset messages with summary
+            self.messages = []
+            self.add_messages(
+                self.model.format_message(role="system", content=self._render_template(self.config.system_template)),
+                self.model.format_message(role="user", content=self._render_template(self.config.instance_template)),
+                self.model.format_message(role="assistant", content=summary_text),
+            )
+
+            for i in range(len(messages_to_keep)):
+                self.messages.append(messages_to_keep[i])
 
     def execute_actions(self, message: dict) -> list[dict]:
         """Execute actions in message, add observation messages, return them."""
