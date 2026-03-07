@@ -7,6 +7,7 @@ from jinja2 import StrictUndefined, Template
 
 from minisweagent.exceptions import FormatError
 from minisweagent.models.utils.openai_multimodal import expand_multimodal_content
+from minisweagent.phases.phase import Phase
 
 BASH_TOOL = {
     "type": "function",
@@ -26,9 +27,32 @@ BASH_TOOL = {
     },
 }
 
+SWITCH_PHASE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "switch_phase",
+        "description": "Switch the agent's current phase between exploration and execution",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "phase": {
+                    "type": "string",
+                    "enum": [Phase.EXPLORATION.value, Phase.EXECUTION.value],
+                    "description": "The phase to switch to",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Why the phase switch is needed",
+                },
+            },
+            "required": ["phase", "reason"],
+        },
+    },
+}
+
 
 def parse_toolcall_actions(tool_calls: list, *, format_error_template: str) -> list[dict]:
-    """Parse tool calls from the response. Raises FormatError if unknown tool or invalid args."""
+    """Parse tool calls from the response. Raises FormatError if a tool is unknown or its arguments are invalid."""
     if not tool_calls:
         raise FormatError(
             {
@@ -48,10 +72,27 @@ def parse_toolcall_actions(tool_calls: list, *, format_error_template: str) -> l
             args = json.loads(tool_call.function.arguments)
         except Exception as e:
             error_msg = f"Error parsing tool call arguments: {e}."
-        if tool_call.function.name != "bash":
-            error_msg += f"Unknown tool '{tool_call.function.name}'."
-        if not isinstance(args, dict) or "command" not in args:
-            error_msg += "Missing 'command' argument in bash tool call."
+        
+        tool_name = tool_call.function.name
+
+        if tool_name == "bash":
+            if not isinstance(args, dict) or "command" not in args:
+                error_msg += "Missing 'command' argument in bash tool call."
+
+        elif tool_name == "switch_phase":
+            if not isinstance(args, dict):
+                error_msg += "Tool arguments must decode to a JSON object."
+            else:
+                if "phase" not in args:
+                    error_msg += "Missing 'phase' argument in switch_phase tool call."
+                if "reason" not in args:
+                    error_msg += " Missing 'reason' argument in switch_phase tool call."
+                if "phase" in args and args["phase"] not in {Phase.EXPLORATION.value, Phase.EXECUTION.value}:
+                    error_msg += " Invalid 'phase' value. Must be 'exploration' or 'execution'."
+
+        else:
+            error_msg += f"Unknown tool '{tool_name}'."
+
         if error_msg:
             raise FormatError(
                 {
@@ -62,7 +103,24 @@ def parse_toolcall_actions(tool_calls: list, *, format_error_template: str) -> l
                     "extra": {"interrupt_type": "FormatError"},
                 }
             )
-        actions.append({"command": args["command"], "tool_call_id": tool_call.id})
+
+        if tool_name == "bash":
+            actions.append(
+                {
+                    "tool": "bash",
+                    "command": args["command"],
+                    "tool_call_id": tool_call.id,
+                }
+            )
+        elif tool_name == "switch_phase":
+            actions.append(
+                {
+                    "tool": "switch_phase",
+                    "phase": args["phase"],
+                    "reason": args["reason"],
+                    "tool_call_id": tool_call.id,
+                }
+            )
     return actions
 
 

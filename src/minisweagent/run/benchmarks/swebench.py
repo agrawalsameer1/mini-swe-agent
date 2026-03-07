@@ -253,6 +253,10 @@ def main(
         "model": {"model_name": model or UNSET, "model_class": model_class or UNSET},
     })
     config = recursive_merge(*configs)
+    print("FINAL AGENT CONFIG KEYS:", sorted(config.get("agent", {}).keys()))
+    print("FINAL AGENT STEP LIMIT:", config.get("agent", {}).get("step_limit"))
+    print("HAS exploration_system_template:", "exploration_system_template" in config.get("agent", {}))
+    print("HAS execution_system_template:", "execution_system_template" in config.get("agent", {}))
 
     progress_manager = RunBatchProgressManager(len(instances), output_path / f"exit_statuses_{time.time()}.yaml")
 

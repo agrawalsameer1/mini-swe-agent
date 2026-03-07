@@ -21,6 +21,7 @@ from minisweagent import Environment, Model, __version__
 from minisweagent.exceptions import InterruptAgentFlow, LimitsExceeded
 from minisweagent.utils.serialize import recursive_merge
 from minisweagent.models.litellm_model import LitellmModel
+from minisweagent.phases.phase import Phase
 
 import vertexai
 from vertexai.generative_models import GenerativeModel
@@ -30,11 +31,21 @@ MAXTOKENS = 4096
 class AgentConfig(BaseModel):
     """Check the config files in minisweagent/config for example settings."""
 
+    exploration_system_template: str
+    """System template used during exploration phase."""
+    exploration_instance_template: str
+    """User/task template used during exploration phase."""
+
+    execution_system_template: str
+    """System template used during execution phase."""
+    execution_instance_template: str
+    """User/task template used during execution phase."""
+    
     system_template: str
     """Template for the system message (the first message)."""
     instance_template: str
     """Template for the first user message specifying the task (the second message overall)."""
-    step_limit: int = 0
+    step_limit: int = 2
     """Maximum number of steps the agent can take."""
     cost_limit: float = 3.0
     """Stop agent after exceeding (!) this cost."""
@@ -46,7 +57,6 @@ class DefaultAgent:
     def __init__(self, model: Model, env: Environment, *, config_class: type = AgentConfig, **kwargs):
         """See the `AgentConfig` class for permitted keyword arguments."""
         self.config = config_class(**kwargs)
-        self.config.step_limit = 70
         self.messages: list[dict] = []
         self.messages2: list[dict] = []
         self.model = model
@@ -55,6 +65,7 @@ class DefaultAgent:
         self.logger = logging.getLogger("agent")
         self.cost = 0.0
         self.n_calls = 0
+        self.phase = Phase.EXPLORATION
 
     def get_template_vars(self, **kwargs) -> dict:
         return recursive_merge(
@@ -97,9 +108,10 @@ class DefaultAgent:
         """Run step() until agent is finished. Returns dictionary with exit_status, submission keys."""
         self.extra_template_vars |= {"task": task, **kwargs}
         self.messages = []
+        system_template, instance_template = self._get_phase_templates()
         self.add_messages(
-            self.model.format_message(role="system", content=self._render_template(self.config.system_template)),
-            self.model.format_message(role="user", content=self._render_template(self.config.instance_template)),
+            self.model.format_message(role="system", content=self._render_template(system_template)),
+            self.model.format_message(role="user", content=self._render_template(instance_template)),
         )
         
         while True:
@@ -131,6 +143,9 @@ class DefaultAgent:
 
         self.n_calls += 1
         message = self.model.query(self.messages)
+        message.setdefault("extra", {})
+        message["extra"]["phase"] = self.phase.value
+        message["extra"]["step_index"] = self.n_calls
         self.cost += message.get("extra", {}).get("cost", 0.0)
         self.add_messages(message)
         
@@ -142,9 +157,24 @@ class DefaultAgent:
         """
 
         return message
+    
+    def _get_phase_templates(self):
+        if self.phase == Phase.EXPLORATION:
+            return (
+                self.config.exploration_system_template,
+                self.config.exploration_instance_template,
+            )
+        if self.phase == Phase.EXECUTION:
+            return (
+                self.config.execution_system_template,
+                self.config.execution_instance_template,
+            )
+        raise ValueError(f"Unknown phase: {self.phase}")
 
     def step(self) -> list[dict]:
+        print(f"[DEBUG] phase at start of step: {self.phase}")
         self.execute_actions(self.query())
+        print(f"[DEBUG] phase after execute_actions: {self.phase}")
         if self.messages[-1].get("role") == "exit":
             return
 
@@ -211,18 +241,63 @@ To assist you, here are the original system prompts given to the coding agent. N
         
             # Reset messages with summary
             self.messages = []
+            system_template, instance_template = self._get_phase_templates()
+
             self.add_messages(
-                self.model.format_message(role="system", content=self._render_template(self.config.system_template)),
-                self.model.format_message(role="user", content=self._render_template(self.config.instance_template)),
+                self.model.format_message(role="system", content=self._render_template(system_template)),
+                self.model.format_message(role="user", content=self._render_template(instance_template)),
                 self.model.format_message(role="assistant", content=summary_text),
             )
 
             for i in range(len(messages_to_keep)):
                 self.messages.append(messages_to_keep[i])
 
+    def execute_action(self, action: dict) -> dict:
+        """Execute a single action."""
+        tool = action.get("tool", "bash")
+
+        if tool == "bash":
+            return self.env.execute(action)
+
+        if tool == "switch_phase":
+            old_phase = self.phase
+            self.phase = Phase(action["phase"])
+
+            if len(self.messages) >= 2:
+                system_template, instance_template = self._get_phase_templates()
+                self.messages[0] = self.model.format_message(
+                    role="system",
+                    content=self._render_template(system_template),
+                )
+                self.messages[1] = self.model.format_message(
+                    role="user",
+                    content=self._render_template(instance_template),
+                )
+
+            return {
+                "output": (
+                    f"Switched phase from {old_phase.value} to {self.phase.value}.\n"
+                    f"Reason: {action['reason']}"
+                ),
+                "returncode": 0,
+                "exception_info": "",
+                "extra": {
+                    "old_phase": old_phase.value,
+                    "new_phase": self.phase.value,
+                    "reason": action["reason"],
+                },
+            }
+
+        return {
+            "output": "",
+            "returncode": -1,
+            "exception_info": f"Unknown tool: {tool}",
+            "extra": {"tool": tool},
+        }
+
     def execute_actions(self, message: dict) -> list[dict]:
         """Execute actions in message, add observation messages, return them."""
-        outputs = [self.env.execute(action) for action in message.get("extra", {}).get("actions", [])]
+        outputs = [self.execute_action(action) for action in message.get("extra", {}).get("actions", [])]
         return self.add_messages(*self.model.format_observation_messages(message, outputs, self.get_template_vars()))
 
     def serialize(self, *extra_dicts) -> dict:
