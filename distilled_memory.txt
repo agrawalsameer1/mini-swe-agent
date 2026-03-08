@@ -1,0 +1,39 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+### DISTILLED TASK MEMORY
+
+ISSUE CORE:
+- The `pylint` linter in `sqlfluff` fails to correctly identify or execute the `pylint` executable, particularly when it is installed as a module or in specific environments, leading to execution errors.
+
+CONFIRMED RELEVANT FILES:
+- `src/sqlfluff/utils/linter/pylint.py`: Likely contains the execution logic for the pylint wrapper.
+- `src/sqlfluff/core/config.py`: Handles configuration loading which might include linter paths.
+
+CONFIRMED IRRELEVANT PATHS:
+- `src/sqlfluff/core/rules/`: Logic for internal SQL rules is unrelated to external linter execution.
+
+ACTIVE HYPOTHESES:
+- The linter discovery logic relies on a hardcoded `pylint` command string that doesn't account for cases where `python -m pylint` is required.
+- The subprocess call does not correctly inherit the current Python interpreter's environment or `sys.path`.
+
+INVALIDATED HYPOTHESES:
+- None yet.
+
+ATTEMPT LEDGER:
+- Initial exploration phase: Identified that the issue likely resides in how the external process is spawned.
+
+KNOWN REPRO / VALIDATION COMMANDS:
+- `sqlfluff lint --config <config_with_pylint> <file.sql>`
+- `python -m pytest tests/` (Searching for specific pylint integration tests).
+
+IMPORTANT CONSTRAINTS:
+- Must maintain cross-platform compatibility (Windows/Linux/macOS).
+- Must handle cases where `pylint` is in the same virtualenv as `sqlfluff` vs. globally installed.
+
+KEY CODE LOCATIONS:
+- `sqlfluff.utils.linter.pylint`: Core logic for invoking the external `pylint` process.
+
+OPEN RISKS:
+- Differences in `pylint` output formats across versions might break parsing if the execution method changes.
+- Security implications of how shell commands are constructed for subprocesses.

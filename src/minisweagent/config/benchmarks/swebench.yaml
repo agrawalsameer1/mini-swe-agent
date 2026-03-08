@@ -1,34 +1,385 @@
 agent:
-  exploration_system_template: |
-    You are in EXPLORATION phase.
+  distilled_memory_write_template: |
+    You are updating the distilled task memory for a coding agent.
+
+    This memory contains durable knowledge about the task that should
+    remain useful across multiple exploration and execution phases.
+
+    Only store information that is likely to remain true even if the
+    current hypothesis later changes.
+
+    Write the updated distilled memory in exactly this format:
+
+    ISSUE CORE:
+    - Short description of the task or bug.
+
+    CONFIRMED RELEVANT FILES:
+    - Files strongly related to the issue.
+
+    CONFIRMED IRRELEVANT PATHS:
+    - Files or modules that have been ruled out.
+
+    ACTIVE HYPOTHESES:
+    - Currently plausible explanations for the bug.
+
+    INVALIDATED HYPOTHESES:
+    - Hypotheses disproven by validation or inspection.
+
+    ATTEMPT LEDGER:
+    - Short summary of patch attempts and outcomes.
+
+    KNOWN REPRO / VALIDATION COMMANDS:
+    - Commands used to reproduce or verify the bug.
+
+    IMPORTANT CONSTRAINTS:
+    - Rules the patch must follow (e.g., do not modify tests).
+
+    KEY CODE LOCATIONS:
+    - Important functions, classes, or modules related to the issue.
+
+    OPEN RISKS:
+    - Remaining uncertainties that could affect the fix.
 
     Rules:
-    1. On your first step, do not use bash.
-    2. Immediately call the switch_phase tool with phase="execution".
-    3. Use reason="smoke test".
+    - Use exactly these headers in this order.
+    - Store durable facts, not temporary exploration notes.
+    - Do NOT repeat the transcript.
+    - Avoid speculative claims unless labeled as a hypothesis.
+    - Keep entries short and information-dense.
+    - Prefer concrete file paths, functions, and commands.
 
-    Output only a valid tool call.
+    PREVIOUS DISTILLED MEMORY:
+    {{memory}}
+
+    TRANSCRIPT:
+    {{transcript}}
+
+  exploration_handoff_write_template: |
+    You are generating the exploration handoff for a coding agent.
+
+    Exploration has finished and execution will begin.
+
+    Summarize the exploration results into a concrete patch attempt
+    that execution can immediately try.
+
+    Write the handoff in exactly this format:
+
+    ISSUE SUMMARY:
+    - Brief description of the bug or task.
+
+    CURRENT HYPOTHESIS:
+    - Most likely cause of the issue.
+    - Mention specific functions, rules, or logic if known.
+
+    TARGET FILES:
+    - Source files execution should inspect or modify.
+
+    PATCH PLAN:
+    - Concrete edits execution should attempt.
+    - Prefer small, focused modifications.
+
+    EXPECTED EFFECT:
+    - What behavior should change if the patch is correct.
+
+    VALIDATION PLAN:
+    - Commands or checks execution should run to verify the fix.
+
+    RISKS / UNCERTAINTIES:
+    - Important assumptions or unknowns.
+
+    SWITCH REASON:
+    - Why exploration decided a patch attempt should happen now.
+
+    Rules:
+    - Use exactly these headers in this order.
+    - Be concise and technical.
+    - Prefer concrete file paths, functions, and commands.
+    - Do not repeat the transcript.
+    - Do not include narrative reasoning.
+
+    EXPLORATION TRANSCRIPT:
+    {{transcript}}
+
+  execution_report_write_template: |
+    You are generating the execution report for a coding agent.
+
+    Execution has ended and the agent is returning to exploration.
+
+    Summarize the results so exploration can quickly decide what to
+    investigate next.
+
+    Write the report in exactly this format:
+
+    ATTEMPTED PATCH:
+    - Describe the change that was attempted.
+
+    FILES MODIFIED:
+    - Source files edited during execution.
+
+    VALIDATION RESULT:
+    - Outcome of tests, repro commands, or validation checks.
+
+    HYPOTHESIS STATUS:
+    - One of:
+        CONFIRMED
+        PARTIALLY_SUPPORTED
+        INVALIDATED
+        UNCLEAR
+
+    KEY OBSERVATIONS:
+    - Important behaviors observed during validation.
+
+    IMPLICATIONS:
+    - What these results suggest about the bug.
+
+    NEXT EXPLORATION FOCUS:
+    - What exploration should investigate next.
+
+    SWITCH REASON:
+    - Why execution returned to exploration.
+
+    Rules:
+    - Use exactly these headers in this order.
+    - Be concise and technical.
+    - Prefer concrete file paths and commands.
+    - Do not repeat the transcript.
+
+    EXECUTION TRANSCRIPT:
+    {{transcript}}
+
+  exploration_scratchpad_write_template: |
+    You are updating the exploration scratchpad for a coding agent.
+
+    This scratchpad tracks temporary working state during the current
+    exploration phase.
+
+    The scratchpad should help the agent quickly decide the next action
+    or whether to switch to execution.
+
+    Write the scratchpad in exactly this format:
+
+    FILES READ THIS PHASE:
+    - ...
+
+    TESTS / REPROS INSPECTED:
+    - ...
+
+    SEARCHES PERFORMED:
+    - ...
+
+    CURRENT HYPOTHESIS:
+    - Best current explanation for the bug.
+
+    CANDIDATE PATCH IDEA:
+    - The patch exploration currently believes execution should try.
+
+    VALIDATION IDEA:
+    - How execution should test that patch.
+
+    OPEN QUESTIONS:
+    - Remaining uncertainties that might affect the patch.
+
+    NEXT EXPLORATION ACTION:
+    - What exploration would do if it continues.
+
+    Rules:
+    - Use exactly these headers.
+    - Only summarize actions taken in this phase.
+    - Keep entries short and factual.
+    - Do NOT block switching due to uncertainty.
+    - If a plausible patch idea exists, execution should try it.
+
+    TASK DESCRIPTION:
+    {{task}}
+
+    EXPLORATION TRANSCRIPT:
+    {{transcript}}
+
+  execution_scratchpad_write_template: |
+    You are updating the execution scratchpad for a coding agent.
+
+    The scratchpad tracks temporary state during the current execution phase.
+
+    Write the scratchpad in exactly this format:
+
+    FILES MODIFIED THIS PHASE:
+    - ...
+
+    COMMANDS RUN:
+    - ...
+
+    LATEST VALIDATION RESULT:
+    - Result of the most recent repro or test.
+
+    CURRENT HYPOTHESIS STATUS:
+    - One of:
+        CONFIRMED
+        PARTIALLY_SUPPORTED
+        INVALIDATED
+        UNCLEAR
+
+    CURRENT PATCH STATE:
+    - What the patch currently changes.
+
+    NEXT EXECUTION ACTION:
+    - What execution should attempt next.
+
+    SWITCH CONDITION:
+    - What situation would trigger switching back to exploration.
+
+    Rules:
+    - Use exactly these headers.
+    - Only summarize actions taken in this phase.
+    - Keep entries concise and factual.
+
+    TASK DESCRIPTION:
+    {{task}}
+
+    EXECUTION TRANSCRIPT:
+    {{transcript}}
+
+  phase_memory_update_template: |
+    You are updating the rolling memory for the agent's CURRENT PHASE.
+
+    The memory summarizes the most important information discovered so far in this phase.
+    Update the memory using the latest step while preserving important prior information.
+
+    Output the updated memory in EXACTLY this format:
+
+    === CURRENT PHASE ===
+
+    CURRENT HYPOTHESIS:
+    - ...
+
+    KEY OBSERVATIONS:
+    - ...
+
+    FILES TOUCHED:
+    - ...
+
+    FAILED ATTEMPTS:
+    - ...
+
+    NEXT STEPS:
+    - ...
+
+    Rules:
+    - Keep exactly these headers in this order.
+    - Be concise.
+    - Preserve still-relevant information from the previous memory.
+    - Add new important information from the latest step.
+    - Remove outdated or redundant information.
+    - Do not repeat identical points.
+    - Update the hypothesis and next steps if the new evidence changes them.
+    - Focus on concrete files, commands, errors, and results when available.
+    - Do not include narration or explanations outside the schema.
+
+    PREVIOUS PHASE MEMORY:
+    {{previous_memory}}
+
+    LATEST STEP:
+    {{latest_step}}
+
+  memory_write_template: |
+    You are generating the exploration handoff for a coding agent.
+
+    The exploration phase has finished and execution will begin next.
+    Your job is to summarize the exploration transcript into a compact
+    plan that execution can immediately act on.
+
+    Based on the exploration transcript below, write a concise memory block
+    in exactly this format:
+
+    ISSUE SUMMARY:
+    - Brief description of the bug or task.
+
+    CURRENT HYPOTHESIS:
+    - The most likely cause of the issue.
+    - Include specific functions, classes, or code behavior when possible.
+
+    TARGET FILES:
+    - Specific source files that execution should inspect or modify.
+    - Include relevant functions or classes if known.
+
+    PATCH PLAN:
+    - Concrete edits that execution should attempt.
+    - Describe the intended change to the code.
+    - Prefer small, focused modifications.
+
+    VALIDATION PLAN:
+    - Commands or checks that execution should run to verify the fix.
+    - Examples: running a repro script, invoking a specific command,
+      or observing expected output changes.
+
+    RISKS / UNCERTAINTIES:
+    - Important assumptions or things that might invalidate the hypothesis.
+    - Keep this short.
+
+    SWITCH REASON:
+    - Why exploration decided execution should attempt a patch now.
+
+    Rules:
+    - Use exactly these headers in this order.
+    - Be concise and technical.
+    - Prefer concrete file paths, functions, and commands.
+    - Do not include narrative or reasoning about the exploration process.
+    - Do not restate the entire transcript.
+    - Focus on information that execution needs to perform the patch.
+
+    This memory will be given directly to the execution phase.
+
+    EXPLORATION TRANSCRIPT:
+    {{transcript}}
+
+  memory_summarizer_template: |
+    You are compressing an agent's long-term memory.
+
+    Your goal is to shorten the ROLLING SUMMARY while preserving important
+    information that may still be useful for solving the task.
+
+    Maintain the following structure exactly:
+
+    DIAGNOSIS:
+    - ...
+
+    RELEVANT FILES:
+    - ...
+
+    PLAN:
+    - ...
+
+    CONSTRAINTS:
+    - ...
+
+    OPEN QUESTIONS:
+    - ...
+
+    Instructions:
+
+    • Keep the same five headers in the same order.
+    • Remove redundant or outdated information.
+    • Keep important file paths, functions, hypotheses, constraints, and past failed attempts.
+    • Prefer concise bullet points when possible.
+    • Do NOT include information from the LATEST EXPLORATION unless it helps determine what older information is still relevant.
+    • The output should only contain the updated rolling summary.
+
+    LATEST EXPLORATION (context only):
+    {{latest_exploration}}
+
+    ROLLING SUMMARY TO COMPRESS:
+    {{rolling_summary}}
+  
+  exploration_system_template: |
+    Immediately call the switch_phase tool with phase="execution". Use reason "smoke test"
 
   exploration_instance_template: |
-    This is a phase smoke test.
-    Current task: {{task}}
-
-    If you are in exploration, switch to execution immediately.
+    Switch to execution immediately.
 
   execution_system_template: |
-    You are in EXECUTION phase.
-
-    Rules:
-    1. Do not call switch_phase.
-    2. Respond with exactly one bash action.
-    3. The bash command must be:
-       echo PHASE_SMOKE_TEST_OK
+    Immediately call the switch_phase tool with phase="exploration". Use reason "smoke test"
 
   execution_instance_template: |
-    This is a phase smoke test.
-    Current task: {{task}}
-
-    If you are in execution, run the required bash command exactly.
+    Switch to exploration immediately.
 
   system_template: |
     You are a helpful assistant that can interact with a computer shell to solve programming tasks.
@@ -140,8 +491,9 @@ agent:
     - You CANNOT continue working (reading, editing, testing) in any way on this task after submitting.
     </CRITICAL>
     </instructions>
-  step_limit: 2
+  step_limit: 70
   cost_limit: 3.
+  phase_recent_message_window: 4
 
 environment:
   cwd: "/testbed"

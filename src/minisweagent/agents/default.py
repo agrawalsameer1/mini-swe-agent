@@ -22,20 +22,38 @@ from minisweagent.exceptions import InterruptAgentFlow, LimitsExceeded
 from minisweagent.utils.serialize import recursive_merge
 from minisweagent.models.litellm_model import LitellmModel
 from minisweagent.phases.phase import Phase
+from minisweagent.memory.components.agent_distilled_memory import AgentDistilledMemory
+from minisweagent.memory.components.agent_handoff import AgentHandoff
+from minisweagent.memory.components.agent_scratchpad import AgentScratchpad
 
-import vertexai
-from vertexai.generative_models import GenerativeModel
+from pathlib import Path
+from pprint import pformat
 
 MAXTOKENS = 4096
 
 class AgentConfig(BaseModel):
     """Check the config files in minisweagent/config for example settings."""
 
+    distilled_memory_write_template: str
+    exploration_handoff_write_template: str
+    execution_report_write_template: str
+    exploration_scratchpad_write_template: str
+    execution_scratchpad_write_template: str
+
+    phase_memory_update_template: str
+    """Template for updating agent phase memory."""
+    phase_recent_message_window: int
+    """Number of recent messages the agent can see verbatim."""
+
+    memory_write_template: str
+    """Template for writing to agent memory."""
+    memory_summarizer_template: str
+    """Template for summarizing agent memory when it exceeds token limit."""
+
     exploration_system_template: str
     """System template used during exploration phase."""
     exploration_instance_template: str
     """User/task template used during exploration phase."""
-
     execution_system_template: str
     """System template used during execution phase."""
     execution_instance_template: str
@@ -66,6 +84,14 @@ class DefaultAgent:
         self.cost = 0.0
         self.n_calls = 0
         self.phase = Phase.EXPLORATION
+        self.distilled_memory = AgentDistilledMemory("distilled_memory.txt")
+        self.distilled_memory.reset()
+        self.handoff = AgentHandoff("handoff.txt")
+        self.handoff.reset(self.phase, initial=True)
+        self.scratchpad = AgentScratchpad("scratchpad.txt")
+        self.scratchpad.reset(self.phase)
+        self.phase_start_idx = 2
+        self.min_exploration_messages = 10
 
     def get_template_vars(self, **kwargs) -> dict:
         return recursive_merge(
@@ -77,8 +103,10 @@ class DefaultAgent:
             kwargs,
         )
 
-    def _render_template(self, template: str) -> str:
-        return Template(template, undefined=StrictUndefined).render(**self.get_template_vars())
+    def _render_template(self, template: str, **extra_vars) -> str:
+        vars = self.get_template_vars()
+        vars.update(extra_vars)
+        return Template(template, undefined=StrictUndefined).render(**vars)
 
     def add_messages(self, *messages: dict) -> list[dict]:
         self.logger.debug(messages)  # set log level to debug to see
@@ -129,9 +157,46 @@ class DefaultAgent:
                 break
 
         return self.messages[-1].get("extra", {})
+    
+    def _refresh_phase_prompts(self) -> list[dict]:
+        system_template, instance_template = self._get_phase_templates()
+
+        prompt_messages: list[dict] = []
+
+        system_msg = self.model.format_message(
+            role="system",
+            content=self._render_template(system_template),
+        )
+        prompt_messages.append(system_msg)
+
+        instance_msg = self.model.format_message(
+            role="user",
+            content=self._render_template(instance_template),
+        )
+        prompt_messages.append(instance_msg)
+
+        handoff_text = self.handoff.read().strip()
+        if handoff_text:
+            prompt_messages.append(
+                self.model.format_message(role="user", content=handoff_text)
+            )
+
+        distilled_text = self.distilled_memory.read().strip()
+        if distilled_text:
+            prompt_messages.append(
+                self.model.format_message(role="user", content=distilled_text)
+            )
+
+        scratchpad_text = self.scratchpad.read().strip()
+        if scratchpad_text:
+            prompt_messages.append(
+                self.model.format_message(role="user", content=scratchpad_text)
+            )
+
+        return prompt_messages
 
     def query(self) -> dict:
-        #Query the model and return model messages. Override to add hooks.
+        """Query the model and return the model message."""
         if 0 < self.config.step_limit <= self.n_calls or 0 < self.config.cost_limit <= self.cost:
             raise LimitsExceeded(
                 {
@@ -141,20 +206,69 @@ class DefaultAgent:
                 }
             )
 
+        query_messages = self._refresh_phase_prompts()
+        next_step_index = self.n_calls + 1
+
+        logs_dir = Path("logs")
+
+        # Reset logs folder at the start of a run
+        if self.n_calls == 0 and logs_dir.exists():
+            import shutil
+            shutil.rmtree(logs_dir)
+
+        logs_dir.mkdir(parents=True, exist_ok=True)
+
+        log_path = logs_dir / f"step_{next_step_index:03d}_{self.phase.value}.txt"
+
+        with log_path.open("w", encoding="utf-8") as f:
+            f.write(f"STEP: {next_step_index}\n")
+            f.write(f"PHASE: {self.phase.value}\n")
+            f.write("=" * 80 + "\n")
+            f.write("FINAL BUILT PROMPT\n")
+            f.write("=" * 80 + "\n\n")
+
+            for i, msg in enumerate(query_messages, start=1):
+                f.write(f"[MESSAGE {i}]\n")
+                f.write(f"role: {msg.get('role', '')}\n")
+
+                content = msg.get("content")
+                if isinstance(content, str):
+                    f.write("content:\n")
+                    f.write(content)
+                    f.write("\n")
+                else:
+                    f.write("content:\n")
+                    f.write(pformat(content))
+                    f.write("\n")
+
+                tool_calls = msg.get("tool_calls")
+                if tool_calls:
+                    f.write("tool_calls:\n")
+                    f.write(pformat(tool_calls))
+                    f.write("\n")
+
+                extra = msg.get("extra")
+                if extra:
+                    f.write("extra:\n")
+                    f.write(pformat(extra))
+                    f.write("\n")
+
+                f.write("\n" + "-" * 80 + "\n\n")
+
         self.n_calls += 1
-        message = self.model.query(self.messages)
+        message = self.model.query(query_messages)
         message.setdefault("extra", {})
         message["extra"]["phase"] = self.phase.value
         message["extra"]["step_index"] = self.n_calls
         self.cost += message.get("extra", {}).get("cost", 0.0)
         self.add_messages(message)
-        
-        """
-        while litellm.token_counter(model=self.model.config.model_name, messages=self.messages) > MAXTOKENS:
-            self.messages.pop(2)
-            while self.messages[2]["role"] != "assistant":
-                self.messages.pop(2)
-        """
+
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write("\n" + "=" * 80 + "\n")
+            f.write("MODEL RESPONSE\n")
+            f.write("=" * 80 + "\n\n")
+            f.write(pformat(message))
+            f.write("\n")
 
         return message
     
@@ -171,87 +285,90 @@ class DefaultAgent:
             )
         raise ValueError(f"Unknown phase: {self.phase}")
 
-    def step(self) -> list[dict]:
+    def step(self) -> list[dict] | None:
+        old_phase = self.phase
         print(f"[DEBUG] phase at start of step: {self.phase}")
         self.execute_actions(self.query())
         print(f"[DEBUG] phase after execute_actions: {self.phase}")
+
         if self.messages[-1].get("role") == "exit":
-            return
+            return None
 
-        if litellm.token_counter(model=self.model.config.model_name, messages=self.messages) > MAXTOKENS:
-            model2content = """Your role: You are a Summarizer Agent.\n
-Your task: You will receive an Interaction History (a list of tool calls and outputs from a primary coding agent).\n
-Synthesize this information into a brief, factual summary. The summary's purpose is to provide a condensed "memory" for the primary agent so it can decide its next action to solve its task.\n
-The summary must capture:\n
-1. The main objective.\n
-2. Key actions taken and their results (e.g., files read, commands run).\n
-3. Critical discoveries (e.g., location of a bug, relevant code snippets).\n
-4. Failures or dead ends encountered.\n
-5. The current state or focus of the investigation.\n
-Output: Return ONLY the plain-text summary. Do not use JSON, Markdown, or any other formatting.\n
-To assist you, here are the original system prompts given to the coding agent. NOTE that you do not have to include these in your summary, as these will always be passed in full to the coding agent:\n"""
-            model2content += (self.messages[0]["content"] + "\n" + self.messages[1]["content"] + "\n\n\n\nINTERACTION HISTORY:\n")
-            
-            # Truncate history if too large
-            history_str = str(self.messages[2:])
-            last_assistant_idx = -1
-            for i in range(len(self.messages) - 1, -1, -1):
-                if self.messages[i].get("role") == "assistant":
-                    last_assistant_idx = i
-                    break
-            messages_to_keep = []
-            messages_to_summarize = []
-        # Keep messages from the last assistant onwards (last step)
-            if last_assistant_idx != -1:
-                messages_to_keep = self.messages[last_assistant_idx:]
-                messages_to_summarize = self.messages[2:last_assistant_idx]
-            else:
-            # No assistant message found, summarize everything except system/user
-                messages_to_keep = []
-                messages_to_summarize = self.messages[2:]
-             
-            vertexai.init(project=os.environ.get("VERTEX_PROJECT_ID"), location="us-central1")
-            model2content += str(messages_to_summarize)
-            # Exponential backoff retry logic
-            max_retries = 5
-            base_delay = 2  # seconds
-            
-            for attempt in range(max_retries):
-                try:
-                    # Use stable model instead of experimental
-                    summarizer = GenerativeModel("gemini-2.5-pro")
-                    response = summarizer.generate_content(model2content)
-                    summary_text = response.text
-                    
-                    print("\n\n\nSUMMARY:")
-                    print(summary_text)
-                    break  # Success, exit retry loop
-                    
-                except Exception as e:
-                    if attempt < max_retries - 1:
-                        # Calculate exponential backoff delay
-                        delay = base_delay * (2 ** attempt)
-                        print(f"Summarization attempt {attempt + 1} failed: {e}")
-                        print(f"Retrying in {delay} seconds...")
-                        time.sleep(delay)
-                    else:
-                        # Final attempt failed, use fallback
-                        print(f"Summarization failed after {max_retries} attempts: {e}")
-                        summary_text = "[Previous context truncated - summarization unavailable]"
+        # If phase changed during execute_actions, let the phase-switch logic
+        # handle handoff/report generation, distilled memory update, and scratchpad reset.
+        if self.phase != old_phase:
+            return self.messages
+
+        if self.phase == Phase.EXPLORATION:
+            scratchpad_text = self.create_exploration_scratchpad()
+        elif self.phase == Phase.EXECUTION:
+            scratchpad_text = self.create_execution_scratchpad()
+        else:
+            raise ValueError(f"Unknown phase: {self.phase}")
+
+        self.scratchpad.write(scratchpad_text)
+
+        return self.messages
+
+    def _can_leave_exploration(self) -> bool:
+        exploration_messages = self.messages[self.phase_start_idx:]
+        return len(exploration_messages) >= self.min_exploration_messages
+
+    def _switch_phase(self, action: dict) -> dict:
+        old_phase = self.phase
+        new_phase = Phase(action["phase"])
+
+        if old_phase == new_phase:
+            return {
+                "output": f"Already in phase {self.phase.value}.",
+                "returncode": 0,
+                "exception_info": "",
+                "extra": {
+                    "old_phase": old_phase.value,
+                    "new_phase": new_phase.value,
+                    "reason": action.get("reason", ""),
+                },
+            }
         
-            # Reset messages with summary
-            self.messages = []
-            system_template, instance_template = self._get_phase_templates()
+        # Generate the outgoing handoff/report from the phase we are leaving.
+        if old_phase == Phase.EXPLORATION and new_phase == Phase.EXECUTION:
+            handoff_text = self.create_exploration_handoff()
+        elif old_phase == Phase.EXECUTION and new_phase == Phase.EXPLORATION:
+            handoff_text = self.create_execution_report()
+        else:
+            raise ValueError(f"Unsupported phase switch: {old_phase} -> {new_phase}")
+        
+        # Update distilled task memory using the phase we are leaving.
+        previous_distilled_memory = self.distilled_memory.read().strip()
+        new_distilled_memory = self.create_distilled_memory(previous_distilled_memory)
 
-            self.add_messages(
-                self.model.format_message(role="system", content=self._render_template(system_template)),
-                self.model.format_message(role="user", content=self._render_template(instance_template)),
-                self.model.format_message(role="assistant", content=summary_text),
-            )
+        # Write memory artifacts before entering the new phase.
+        self.handoff.reset(new_phase)
+        self.handoff.write(handoff_text)
 
-            for i in range(len(messages_to_keep)):
-                self.messages.append(messages_to_keep[i])
+        self.distilled_memory.reset()
+        self.distilled_memory.write(new_distilled_memory)
 
+        # Enter the new phase with a fresh scratchpad.
+        self.phase = new_phase
+        self.phase_start_idx = len(self.messages) + 1
+
+        self.scratchpad.reset(self.phase)
+
+        return {
+            "output": (
+                f"Switched phase from {old_phase.value} to {self.phase.value}.\n"
+                f"Reason: {action.get('reason', '')}"
+            ),
+            "returncode": 0,
+            "exception_info": "",
+            "extra": {
+                "old_phase": old_phase.value,
+                "new_phase": self.phase.value,
+                "reason": action.get("reason", ""),
+            },
+        }
+    
     def execute_action(self, action: dict) -> dict:
         """Execute a single action."""
         tool = action.get("tool", "bash")
@@ -260,33 +377,7 @@ To assist you, here are the original system prompts given to the coding agent. N
             return self.env.execute(action)
 
         if tool == "switch_phase":
-            old_phase = self.phase
-            self.phase = Phase(action["phase"])
-
-            if len(self.messages) >= 2:
-                system_template, instance_template = self._get_phase_templates()
-                self.messages[0] = self.model.format_message(
-                    role="system",
-                    content=self._render_template(system_template),
-                )
-                self.messages[1] = self.model.format_message(
-                    role="user",
-                    content=self._render_template(instance_template),
-                )
-
-            return {
-                "output": (
-                    f"Switched phase from {old_phase.value} to {self.phase.value}.\n"
-                    f"Reason: {action['reason']}"
-                ),
-                "returncode": 0,
-                "exception_info": "",
-                "extra": {
-                    "old_phase": old_phase.value,
-                    "new_phase": self.phase.value,
-                    "reason": action["reason"],
-                },
-            }
+            return self._switch_phase(action)
 
         return {
             "output": "",
@@ -332,3 +423,182 @@ To assist you, here are the original system prompts given to the coding agent. N
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(data, indent=2))
         return data
+    
+    def _build_transcript(self, start_idx: int | None = None, end_idx: int | None = None) -> str:
+        """
+        Build a compact transcript from self.messages[start_idx:end_idx].
+        Includes message content and tool calls.
+        """
+        msgs = self.messages[slice(start_idx, end_idx)]
+        transcript_parts: list[str] = []
+
+        for msg in msgs:
+            role = msg.get("role", "unknown")
+
+            content = msg.get("content")
+            if isinstance(content, str) and content.strip():
+                transcript_parts.append(f"{role.upper()}:\n{content.strip()}")
+
+            tool_calls = msg.get("tool_calls") or []
+            if tool_calls:
+                tool_lines = []
+                for tc in tool_calls:
+                    fn = tc.get("function", {})
+                    name = fn.get("name", "")
+                    arguments = fn.get("arguments", "")
+                    tool_lines.append(f"- {name}({arguments})")
+                transcript_parts.append(
+                    f"{role.upper()} TOOL CALLS:\n" + "\n".join(tool_lines)
+                )
+
+        return "\n\n".join(transcript_parts)
+
+    def _generate_memory_block(
+        self,
+        template: str,
+        required_headers: Iterable[str],
+        **template_kwargs,
+    ) -> str:
+        """
+        Render a prompt template, call the model, and validate required headers.
+        """
+        prompt = self._render_template(template, **template_kwargs)
+        messages = [
+            self.model.format_message(role="system", content=prompt),
+        ]
+
+        response = litellm.completion(
+            model=self.model.config.model_name,
+            messages=messages,
+            **self.model.config.model_kwargs,
+        )
+
+        text = response["choices"][0]["message"]["content"].strip()
+
+        missing = [header for header in required_headers if header not in text]
+        if missing:
+            raise ValueError(f"Generated memory missing required headers: {missing}")
+
+        return text
+
+    def create_exploration_handoff(self) -> str:
+        """
+        Generate the exploration -> execution handoff from the current exploration phase.
+        """
+        transcript = self._build_transcript(start_idx=self.phase_start_idx)
+
+        required_headers = [
+            "ISSUE SUMMARY:",
+            "CURRENT HYPOTHESIS:",
+            "TARGET FILES:",
+            "PATCH PLAN:",
+            "EXPECTED EFFECT:",
+            "VALIDATION PLAN:",
+            "RISKS / UNCERTAINTIES:",
+            "SWITCH REASON:",
+        ]
+
+        return self._generate_memory_block(
+            self.config.exploration_handoff_write_template,
+            required_headers=required_headers,
+            transcript=transcript,
+        )
+
+
+    def create_execution_report(self) -> str:
+        """
+        Generate the execution -> exploration report from the current execution phase.
+        """
+        transcript = self._build_transcript(start_idx=self.phase_start_idx)
+
+        required_headers = [
+            "ATTEMPTED PATCH:",
+            "FILES MODIFIED:",
+            "VALIDATION RESULT:",
+            "HYPOTHESIS STATUS:",
+            "KEY OBSERVATIONS:",
+            "IMPLICATIONS:",
+            "NEXT EXPLORATION FOCUS:",
+            "SWITCH REASON:",
+        ]
+
+        return self._generate_memory_block(
+            self.config.execution_report_write_template,
+            required_headers=required_headers,
+            transcript=transcript,
+        )
+
+
+    def create_distilled_memory(self, previous_memory: str) -> str:
+        """
+        Generate updated distilled task memory using the previous distilled memory
+        plus the current phase transcript.
+        """
+        transcript = self._build_transcript(start_idx=self.phase_start_idx)
+
+        required_headers = [
+            "ISSUE CORE:",
+            "CONFIRMED RELEVANT FILES:",
+            "CONFIRMED IRRELEVANT PATHS:",
+            "ACTIVE HYPOTHESES:",
+            "INVALIDATED HYPOTHESES:",
+            "ATTEMPT LEDGER:",
+            "KNOWN REPRO / VALIDATION COMMANDS:",
+            "IMPORTANT CONSTRAINTS:",
+            "KEY CODE LOCATIONS:",
+            "OPEN RISKS:",
+        ]
+
+        return self._generate_memory_block(
+            self.config.distilled_memory_write_template,
+            required_headers=required_headers,
+            memory=previous_memory,
+            transcript=transcript,
+        )
+
+
+    def create_exploration_scratchpad(self) -> str:
+        """
+        Generate the exploration scratchpad for the current exploration phase.
+        """
+        transcript = self._build_transcript(start_idx=self.phase_start_idx)
+
+        required_headers = [
+            "FILES READ THIS PHASE:",
+            "TESTS / REPROS INSPECTED:",
+            "SEARCHES PERFORMED:",
+            "CURRENT HYPOTHESIS:",
+            "CANDIDATE PATCH IDEA:",
+            "VALIDATION IDEA:",
+            "OPEN QUESTIONS:",
+            "NEXT EXPLORATION ACTION:",
+        ]
+
+        return self._generate_memory_block(
+            self.config.exploration_scratchpad_write_template,
+            required_headers=required_headers,
+            transcript=transcript,
+        )
+
+
+    def create_execution_scratchpad(self) -> str:
+        """
+        Generate the execution scratchpad for the current execution phase.
+        """
+        transcript = self._build_transcript(start_idx=self.phase_start_idx)
+
+        required_headers = [
+            "FILES MODIFIED THIS PHASE:",
+            "COMMANDS RUN:",
+            "LATEST VALIDATION RESULT:",
+            "CURRENT HYPOTHESIS STATUS:",
+            "CURRENT PATCH STATE:",
+            "NEXT EXECUTION ACTION:",
+            "SWITCH CONDITION:",
+        ]
+
+        return self._generate_memory_block(
+            self.config.execution_scratchpad_write_template,
+            required_headers=required_headers,
+            transcript=transcript,
+        )
