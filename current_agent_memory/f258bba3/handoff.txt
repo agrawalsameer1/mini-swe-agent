@@ -1,0 +1,26 @@
+=== CURRENT OBJECTIVE ===
+Execute the patch plan identified during exploration and validate the fix.
+
+1. The bug hypothesis is that `_infer_str_format_call` in `astroid/brain/brain_builtin_inference.py` fails to catch `TypeError` when `str.format` is called with arguments incompatible with the template's format specifiers (e.g., `"{:s}".format(None)`).
+2. Open `astroid/brain/brain_builtin_inference.py`.
+3. Locate the `_infer_str_format_call` function (around line 927).
+4. Find the `try...except` block (around line 956) that currently catches `(IndexError, KeyError)`.
+5. Update the `except` clause to also catch `TypeError`: `except (IndexError, KeyError, TypeError):`.
+6. Save the changes.
+7. Create a validation script `reproduce_issue.py` with the following content:
+```python
+import astroid
+code = '"{:s}".format(None)'
+node = astroid.extract_node(code)
+try:
+    inferred = next(node.infer())
+    print(f"Inferred: {inferred}")
+except TypeError as e:
+    print(f"Caught expected TypeError: {e}")
+    exit(1)
+except Exception as e:
+    print(f"Caught unexpected exception: {type(e).__name__}: {e}")
+    exit(1)
+```
+8. Run `python3 reproduce_issue.py` and verify it no longer crashes with a `TypeError` but instead prints `Inferred: Uninferable`.
+9. If validation fails or new issues arise, switch back to exploration.

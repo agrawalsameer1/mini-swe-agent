@@ -1,0 +1,691 @@
+STEP: 8
+PHASE: exploration
+================================================================================
+FINAL BUILT PROMPT
+================================================================================
+
+[MESSAGE 1]
+role: system
+content:
+You are a helpful assistant that can interact with a computer shell to solve programming tasks.
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 2]
+role: user
+content:
+<pr_description>
+Consider the following PR description:
+Extra space when first field moved to new line in a WITH statement
+Note, the query below uses a `WITH` statement. If I just try to fix the SQL within the CTE, this works fine.
+
+Given the following SQL:
+
+```sql
+WITH example AS (
+    SELECT my_id,
+        other_thing,
+        one_more
+    FROM
+        my_table
+)
+
+SELECT *
+FROM example
+```
+
+## Expected Behaviour
+
+after running `sqlfluff fix` I'd expect (`my_id` gets moved down and indented properly):
+
+```sql
+WITH example AS (
+    SELECT
+        my_id,
+        other_thing,
+        one_more
+    FROM
+        my_table
+)
+
+SELECT *
+FROM example
+```
+
+## Observed Behaviour
+
+after running `sqlfluff fix` we get (notice that `my_id` is indented one extra space)
+
+```sql
+WITH example AS (
+    SELECT
+         my_id,
+        other_thing,
+        one_more
+    FROM
+        my_table
+)
+
+SELECT *
+FROM example
+```
+
+## Steps to Reproduce
+
+Noted above. Create a file with the initial SQL and fun `sqfluff fix` on it.
+
+## Dialect
+
+Running with default config.
+
+## Version
+Include the output of `sqlfluff --version` along with your Python version
+
+sqlfluff, version 0.7.0
+Python 3.7.5
+
+## Configuration
+
+Default config.
+
+
+</pr_description>
+
+<instructions>
+# EXPLORATION PHASE
+
+You are currently in the **EXPLORATION phase**.
+
+Your goal for the current phase is to understand the bug and gather enough information to
+produce a **single concrete patch attempt**.
+
+Exploration should focus on:
+- reading relevant code
+- locating the bug mechanism
+- identifying target files and functions
+- forming a plausible patch hypothesis
+- determining how the patch will be validated
+
+You must **NOT modify source files during exploration**.
+
+If you have enough information to attempt a patch, you must switch to
+**EXECUTION phase** using the `switch_phase` tool.
+
+Exploration should be **short and decisive**. Do not attempt to achieve
+perfect certainty before switching phases.
+
+</instructions>
+
+<memory_system>
+# Memory System
+
+The agent maintains two forms of memory.
+
+## Distilled Memory (long-term)
+
+This contains durable knowledge discovered during previous phases, such as:
+
+- confirmed relevant files
+- invalidated hypotheses
+- previous patch attempts
+- reproduction commands
+- important code locations
+
+Treat distilled memory as reliable prior knowledge.
+
+## Execution Report (handoff from execution)
+
+If present, the execution report summarizes:
+
+- the patch that was attempted
+- edits made
+- validation results
+- why the attempt failed
+- what exploration should investigate next
+
+If an execution report is present, **treat it as high-priority information**.
+The next exploration phase should focus on resolving the uncertainty described there.
+
+</memory_system>
+
+<recommended_workflow>
+# Recommended Exploration Workflow
+
+Typical exploration steps include:
+
+1. Identify likely relevant files
+2. Read the implementation and related functions
+3. Understand how the failing behavior occurs
+4. Form a concrete hypothesis for the bug
+5. Identify the file(s) and code region(s) that should be modified
+6. Decide how the patch will be validated
+
+Exploration is complete if you can clearly identify:
+
+- TARGET FILES to edit
+- A PLAUSIBLE BUG HYPOTHESIS
+- A CONCRETE PATCH IDEA
+- A VALIDATION COMMAND
+
+At that point, **switch to EXECUTION immediately**.
+
+</recommended_workflow>
+
+<phase_switching>
+# Phase Switching (CRITICAL)
+
+If the CURRENT PHASE MESSAGES, Distilled Memory, and Execution Report contain enough information to generate
+a concrete patch attempt, you MUST call the `switch_phase` tool.
+
+Do NOT continue exploring indefinitely.
+
+You should switch phases if you can answer these questions:
+
+- Which file(s) should be modified?
+- What change should be made?
+- Why should that change fix the bug?
+- How will the patch be validated?
+
+You do NOT need perfect certainty.
+
+A **reasonable first patch attempt is sufficient**.
+
+Continuing exploration when a viable patch plan exists is incorrect behavior.
+
+</phase_switching>
+
+<command_rules>
+# Command Execution Rules
+
+You are operating in an environment where:
+
+1. You issue commands
+2. The system executes them in a subshell
+3. You see the results
+4. You issue the next command(s)
+
+Each response must include:
+
+1. A **THOUGHT** section explaining your reasoning
+2. At least one **tool call**
+
+Tool calls may be:
+
+- bash commands (for exploration)
+- switch_phase (if exploration is complete)
+
+</command_rules>
+
+<allowed_actions>
+# Allowed Exploration Actions
+
+During exploration you may:
+
+- list files
+- search the codebase
+- read source files
+- inspect functions and modules
+- run diagnostic commands
+- examine tests or reproduction scripts
+
+Useful commands include:
+
+- `ls`
+- `grep`
+- `rg`
+- `find`
+- `cat`
+- `sed`
+- `head`
+- `tail`
+
+</allowed_actions>
+
+<forbidden_actions>
+# Forbidden Actions in Exploration
+
+During exploration you MUST NOT:
+
+- modify source files
+- create patches
+- run large refactors
+- attempt to implement the fix
+
+Code edits belong in **EXECUTION phase**.
+
+</forbidden_actions>
+
+<environment>
+# Environment Details
+
+- You have a full Linux shell environment
+- Use non-interactive flags (-y, -f) when applicable
+- Avoid interactive tools like `vim` or `nano`
+- Directory changes are not persistent between commands
+- Prefix commands with `cd` if necessary
+
+</environment>
+
+<response_format>
+# Response Format
+
+Each response must follow this format:
+
+THOUGHT:
+Explain your reasoning and what you are trying to learn.
+
+Then include **one or more tool calls**.
+
+Example of switching phases if exploration is complete:
+<example_response>
+I have identified the likely bug location and have enough information for a patch attempt.
+The relevant file is `src/parser/query_validator.py`. The validation logic appears to
+incorrectly flag aliased column references without checking whether the alias originates
+from a JOIN clause. A reasonable patch would add a check for JOIN context before raising
+the validation error. Since I now have a clear hypothesis, target file, patch idea, and
+validation plan, exploration is complete and I should switch to execution.
+
+[Calls switch_phase tool: {"phase": "execution", "reason": "Identified target file src/parser/query_validator.py, formed hypothesis about JOIN alias handling, and have a concrete patch plan and validation command."}]
+</example_response>
+
+Example of continuing exploration:
+<example_response>
+I need to understand the Builder-related code. Let me find relevant files and check the project structure.
+
+[Makes multiple bash tool calls: {"command": "ls -la"}, {"command": "find src -name '*.java' | grep -i builder"}, {"command": "cat README.md | head -50"}]
+</example_response>
+
+</response_format>
+
+<tool_requirement>
+# REQUIRED ACTION (CRITICAL)
+
+Every response MUST end with a tool call.
+
+You have exactly TWO possible actions:
+
+1. Call the `bash` tool
+2. Call the `switch_phase` tool
+
+You MUST choose one of these actions on EVERY step.
+
+A response without a tool call is INVALID.
+
+Text-only responses are INVALID.
+
+Never finish a response without a tool call.
+</tool_requirement>
+
+</instructions> 
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 3]
+role: user
+content:
+=== CURRENT OBJECTIVE ===
+Initial exploration of the issue. Identify the relevant code implementing the behavior described in the task and prepare a patch plan.
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 4]
+role: user
+content:
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 5]
+role: user
+content:
+=== CURRENT PHASE CONTEXT ===
+These messages contain the transcript of the current phase, including your previous actions, command outputs, and reasoning.
+Use this information to decide whether to continue the phase or switch phases.
+
+STEP 1
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "ls -F"}
+
+STEP 2
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+CHANGELOG.md
+CODE_OF_CONDUCT.md
+CONTRIBUTING.md
+LICENSE.md
+MANIFEST.in
+README.md
+benchmarks/
+docs/
+examples/
+images/
+mypy.ini
+plugins/
+pytest.ini
+requirements.txt
+requirements_dev.txt
+setup.py
+src/
+test/
+tox.ini
+util.py
+</output>
+
+STEP 3
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "cat <<EOF > reproduce_issue.sql\nWITH example AS (\n    SELECT my_id,\n        other_thing,\n        one_more\n    FROM\n        my_table\n)\n\nSELECT *\nFROM example\nEOF\n"}
+
+STEP 4
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+</output>
+
+STEP 5
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "sqlfluff --version && python --version"}
+
+STEP 6
+TOOL RESULT:
+return_code: 127
+output:
+<returncode>127</returncode>
+<output>
+bash: line 1: sqlfluff: command not found
+</output>
+
+STEP 7
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "pip install -e . && sqlfluff --version && python --version"}
+
+STEP 8
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+Obtaining file:///testbed
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Collecting click>=7.1 (from sqlfluff==0.7.1)
+  Downloading click-8.3.1-py3-none-any.whl.metadata (2.6 kB)
+Collecting colorama>=0.3 (from sqlfluff==0.7.1)
+  Using cached colorama-0.4.6-py2.py3-none-any.whl.metadata (17 kB)
+Collecting configparser (from sqlfluff==0.7.1)
+  Downloading configparser-7.2.0-py3-none-any.whl.metadata (5.5 kB)
+Collecting oyaml (from sqlfluff==0.7.1)
+  Using cached oyaml-1.0-py2.py3-none-any.whl.metadata (1.2 kB)
+Collecting Jinja2 (from sqlfluff==0.7.1)
+  Downloading jinja2-3.1.6-py3-none-any.whl.metadata (2.9 kB)
+Collecting diff-cover>=2.5.0 (from sqlfluff==0.7.1)
+  Downloading diff_cover-10.2.0-py3-none-any.whl.metadata (19 kB)
+Collecting pathspec (from sqlfluff==0.7.1)
+  Downloading pathspec-1.0.4-py3-none-any.whl.metadata (13 kB)
+Collecting appdirs (from sqlfluff==0.7.1)
+  Using cached appdirs-1.4.4-py2.py3-none-any.whl.metadata (9.0 kB)
+Collecting cached-property (from sqlfluff==0.7.1)
+  Using cached cached_property-2.0.1-py3-none-any.whl.metadata (10 kB)
+Collecting typing_extensions (from sqlfluff==0.7.1)
+  Downloading typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting pytest (from sqlfluff==0.7.1)
+  Downloading pytest-9.0.2-py3-none-any.whl.metadata (7.6 kB)
+Collecting toml (from sqlfluff==0.7.1)
+  Using cached toml-0.10.2-py2.py3-none-any.whl.metadata (7.1 kB)
+Collecting tblib (from sqlfluff==0.7.1)
+  Downloading tblib-3.2.2-py3-none-any.whl.metadata (27 kB)
+Collecting Pygments<3.0.0,>=2.19.1 (from diff-cover>=2.5.0->sqlfluff==0.7.1)
+  Downloading pygments-2.19.2-py3-none-any.whl.metadata (2.5 kB)
+Collecting chardet>=3.0.0 (from diff-cover>=2.5.0->sqlfluff==0.7.1)
+  Downloading chardet-7.0.1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (7.1 kB)
+Requirement already satisfied: pluggy<2,>=0.13.1 in /opt/miniconda3/lib/python3.11/site-packages (from diff-cover>=2.5.0->sqlfluff==0.7.1) (1.0.0)
+Collecting MarkupSafe>=2.0 (from Jinja2->sqlfluff==0.7.1)
+  Downloading markupsafe-3.0.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.7 kB)
+Collecting pyyaml (from oyaml->sqlfluff==0.7.1)
+  Downloading pyyaml-6.0.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.4 kB)
+Collecting iniconfig>=1.0.1 (from pytest->sqlfluff==0.7.1)
+  Downloading iniconfig-2.3.0-py3-none-any.whl.metadata (2.5 kB)
+Requirement already satisfied: packaging>=22 in /opt/miniconda3/lib/python3.11/site-packages (from pytest->sqlfluff==0.7.1) (23.1)
+Collecting pluggy<2,>=0.13.1 (from diff-cover>=2.5.0->sqlfluff==0.7.1)
+  Downloading pluggy-1.6.0-py3-none-any.whl.metadata (4.8 kB)
+Downloading click-8.3.1-py3-none-any.whl (108 kB)
+Using cached colorama-0.4.6-py2.py3-none-any.whl (25 kB)
+Downloading diff_cover-10.2.0-py3-none-any.whl (56 kB)
+Downloading jinja2-3.1.6-py3-none-any.whl (134 kB)
+Using cached appdirs-1.4.4-py2.py3-none-any.whl (9.6 kB)
+Using cached cached_property-2.0.1-py3-none-any.whl (7.4 kB)
+Downloading configparser-7.2.0-py3-none-any.whl (17 kB)
+Using cached oyaml-1.0-py2.py3-none-any.whl (3.0 kB)
+Downloading pathspec-1.0.4-py3-none-any.whl (55 kB)
+Downloading pytest-9.0.2-py3-none-any.whl (374 kB)
+Downloading tblib-3.2.2-py3-none-any.whl (12 kB)
+Using cached toml-0.10.2-py2.py3-none-any.whl (16 kB)
+Downloading typing_extensions-4.15.0-py3-none-any.whl (44 kB)
+Downloading chardet-7.0.1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (555 kB)
+Downloading iniconfig-2.3.0-py3-none-any.whl (7.5 kB)
+Downloading markupsafe-3.0.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (22 kB)
+Downloading pluggy-1.6.0-py3-none-any.whl (20 kB)
+Downloading pygments-2.19.2-py3-none-any.whl (1.2 MB)
+Downloading pyyaml-6.0.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (806 kB)
+Installing collected packages: appdirs, typing_extensions, toml, tblib, pyyaml, Pygments, pluggy, pathspec, MarkupSafe, iniconfig, configparser, colorama, click, chardet, cached-property, pytest, oyaml, Jinja2, diff-cover, sqlfluff
+  Attempting uninstall: pluggy
+    Found existing installation: pluggy 1.0.0
+    Uninstalling pluggy-1.0.0:
+      Successfully uninstalled pluggy-1.0.0
+  Running setup.py develop for sqlfluff
+Successfully installed Jinja2-3.1.6 MarkupSafe-3.0.3 Pygments-2.19.2 appdirs-1.4.4 cached-property-2.0.1 chardet-7.0.1 click-8.3.1 colorama-0.4.6 configparser-7.2.0 diff-cover-10.2.0 iniconfig-2.3.0 oyaml-1.0 pathspec-1.0.4 pluggy-1.6.0 pytest-9.0.2 pyyaml-6.0.3 sqlfluff-0.7.1 tblib-3.2.2 toml-0.10.2 typing_extensions-4.15.0
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+sqlfluff, version 0.7.1
+Python 3.11.5
+</output>
+
+STEP 9
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "sqlfluff fix reproduce_issue.sql --force"}
+
+STEP 10
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+==== finding fixable violations ====
+WARNING    One fix for L003 not applied, it would re-cause the same error. 
+== [reproduce_issue.sql] FAIL
+L:   2 | P:   5 | L036 | Select targets should be on a new line unless there is
+                       | only one select target.
+==== fixing violations ====
+1 fixable linting violations found
+FORCE MODE: Attempting fixes...
+Persisting Changes...
+== [reproduce_issue.sql] PASS
+Done. Please check your files to confirm.
+</output>
+
+STEP 11
+ASSISTANT THOUGHT:
+THOUGHT:
+The issue has been reproduced. The `sqlfluff fix` command modified `reproduce_issue.sql`. Now I need to check the content of the file to see if it matches the "Observed Behaviour" described in the PR.
+
+Then I will examine the rules, specifically L036 and L003, as they seem to be involved in this issue. L036 is about select targets being on a new line, and L003 is about indentation.
+
+I'll start by checking the fixed file.
+
+STEP 12
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "cat reproduce_issue.sql"}
+
+STEP 13
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+WITH example AS (
+    SELECT
+         my_id,
+        other_thing,
+        one_more
+    FROM
+        my_table
+)
+
+SELECT *
+FROM example
+</output>
+
+STEP 14
+ASSISTANT THOUGHT:
+THOUGHT:
+The issue is reproduced. `my_id` has an extra space of indentation.
+The output of `sqlfluff fix` mentioned:
+`WARNING    One fix for L003 not applied, it would re-cause the same error.`
+`L:   2 | P:   5 | L036 | Select targets should be on a new line unless there is only one select target.`
+
+It seems L036 is responsible for moving `my_id` to a new line, and then L003 (indentation) might be involved in the extra space.
+
+Let's look at the code for L036 and L003. I'll start by listing the files in `src/sqlfluff/rules`.
+
+I'll also check the dialect and the parser to see how `WITH` and `SELECT` are structured, as the PR mentions this only happens within a `WITH` statement.
+
+First, let's find where the rules are located.
+
+STEP 15
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "find src/sqlfluff/rules -name \"*.py\" | grep -E \"L003|L036\""}
+
+STEP 16
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+src/sqlfluff/rules/L003.py
+src/sqlfluff/rules/L036.py
+</output>
+
+--------------------------------------------------------------------------------
+
+
+================================================================================
+MODEL RESPONSE
+================================================================================
+
+{'content': 'THOUGHT:\n'
+            'The issue is reproduced. `my_id` has an extra space of '
+            'indentation when moved to a new line within a `WITH` statement.\n'
+            '\n'
+            "I'll examine `src/sqlfluff/rules/L036.py` to see how it handles "
+            'moving select targets to a new line, and '
+            '`src/sqlfluff/rules/L003.py` to see how it handles indentation.\n'
+            '\n'
+            'The PR mentions that this only happens within a `WITH` statement. '
+            'This suggests that the context of the `SELECT` statement (being '
+            'inside a CTE) might be affecting the indentation calculation.\n'
+            '\n'
+            "Let's start by reading `src/sqlfluff/rules/L036.py`.\n"
+            '\n',
+ 'extra': {'actions': [{'command': 'cat src/sqlfluff/rules/L036.py',
+                        'tool': 'bash',
+                        'tool_call_id': 'call_e3b7825a83ae41f19e8b1f541b8a__thought__CiEBjz1rX8/9Xbti+5shmM2rUrI0A/GfLev9WLZ8R/5iuaA='}],
+           'cost': 0.0032394999999999998,
+           'phase': 'exploration',
+           'response': {'choices': [{'finish_reason': 'tool_calls',
+                                     'index': 0,
+                                     'message': {'content': 'THOUGHT:\n'
+                                                            'The issue is '
+                                                            'reproduced. '
+                                                            '`my_id` has an '
+                                                            'extra space of '
+                                                            'indentation when '
+                                                            'moved to a new '
+                                                            'line within a '
+                                                            '`WITH` '
+                                                            'statement.\n'
+                                                            '\n'
+                                                            "I'll examine "
+                                                            '`src/sqlfluff/rules/L036.py` '
+                                                            'to see how it '
+                                                            'handles moving '
+                                                            'select targets to '
+                                                            'a new line, and '
+                                                            '`src/sqlfluff/rules/L003.py` '
+                                                            'to see how it '
+                                                            'handles '
+                                                            'indentation.\n'
+                                                            '\n'
+                                                            'The PR mentions '
+                                                            'that this only '
+                                                            'happens within a '
+                                                            '`WITH` statement. '
+                                                            'This suggests '
+                                                            'that the context '
+                                                            'of the `SELECT` '
+                                                            'statement (being '
+                                                            'inside a CTE) '
+                                                            'might be '
+                                                            'affecting the '
+                                                            'indentation '
+                                                            'calculation.\n'
+                                                            '\n'
+                                                            "Let's start by "
+                                                            'reading '
+                                                            '`src/sqlfluff/rules/L036.py`.\n'
+                                                            '\n',
+                                                 'function_call': None,
+                                                 'images': [],
+                                                 'provider_specific_fields': {'thought_signatures': ['CiEBjz1rX8/9Xbti+5shmM2rUrI0A/GfLev9WLZ8R/5iuaA=']},
+                                                 'role': 'assistant',
+                                                 'thinking_blocks': [],
+                                                 'tool_calls': [{'function': {'arguments': '{"command": '
+                                                                                           '"cat '
+                                                                                           'src/sqlfluff/rules/L036.py"}',
+                                                                              'name': 'bash'},
+                                                                 'id': 'call_e3b7825a83ae41f19e8b1f541b8a__thought__CiEBjz1rX8/9Xbti+5shmM2rUrI0A/GfLev9WLZ8R/5iuaA=',
+                                                                 'index': 0,
+                                                                 'provider_specific_fields': {'thought_signature': 'CiEBjz1rX8/9Xbti+5shmM2rUrI0A/GfLev9WLZ8R/5iuaA='},
+                                                                 'type': 'function'}]}}],
+                        'created': 1773036681,
+                        'id': 'iWSuabfLJMTT67MPqtXrkAw',
+                        'model': 'gemini-3-flash-preview',
+                        'object': 'chat.completion',
+                        'system_fingerprint': None,
+                        'usage': {'cache_read_input_tokens': None,
+                                  'completion_tokens': 175,
+                                  'completion_tokens_details': {'text_tokens': 175},
+                                  'prompt_tokens': 5429,
+                                  'prompt_tokens_details': {'audio_tokens': None,
+                                                            'cached_tokens': None,
+                                                            'image_tokens': None,
+                                                            'text_tokens': 5429},
+                                  'total_tokens': 5604},
+                        'vertex_ai_citation_metadata': [],
+                        'vertex_ai_grounding_metadata': [],
+                        'vertex_ai_safety_results': [],
+                        'vertex_ai_url_context_metadata': []},
+           'step_index': 8,
+           'timestamp': 1773036683.9381042},
+ 'function_call': None,
+ 'images': [],
+ 'provider_specific_fields': {'thought_signatures': ['CiEBjz1rX8/9Xbti+5shmM2rUrI0A/GfLev9WLZ8R/5iuaA=']},
+ 'role': 'assistant',
+ 'thinking_blocks': [],
+ 'tool_calls': [{'function': {'arguments': '{"command": "cat '
+                                           'src/sqlfluff/rules/L036.py"}',
+                              'name': 'bash'},
+                 'id': 'call_e3b7825a83ae41f19e8b1f541b8a__thought__CiEBjz1rX8/9Xbti+5shmM2rUrI0A/GfLev9WLZ8R/5iuaA=',
+                 'index': 0,
+                 'provider_specific_fields': {'thought_signature': 'CiEBjz1rX8/9Xbti+5shmM2rUrI0A/GfLev9WLZ8R/5iuaA='},
+                 'type': 'function'}]}

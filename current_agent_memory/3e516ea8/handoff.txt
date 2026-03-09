@@ -1,0 +1,11 @@
+=== CURRENT OBJECTIVE ===
+Execute the patch plan identified during exploration and validate the fix.
+
+1. The bug is a division by zero in `pvlib/irradiance.py` within the `reindl` function when `ghi` is 0, causing `term3` to become `NaN` and resulting in a `NaN` return value instead of 0.
+2. In `pvlib/irradiance.py`, locate the `reindl` function (around line 793) and the calculation of `term3` (around line 889).
+3. Modify the calculation of `term3` to safely handle `ghi=0` using `np.where`. Change:
+   `term3 = 1 + np.sqrt(HB / ghi) * (tools.sind(0.5 * surface_tilt) ** 3)`
+   to:
+   `term3 = 1 + np.sqrt(np.where(ghi > 0, HB / ghi, 0)) * (tools.sind(0.5 * surface_tilt) ** 3)`
+4. Validate the fix by running the reproduction script: `python3 reproduce_bug.py`. It should now report "Bug not reproduced" and return a numeric value (likely 0.0) instead of `NaN`.
+5. If the validation script passes, the patch is successful; otherwise, switch back to exploration to investigate if other terms or functions require similar guards.

@@ -1,0 +1,9 @@
+=== CURRENT OBJECTIVE ===
+Execute the patch plan identified during exploration and validate the fix.
+
+1. The bug hypothesis is that Rule L031 in `src/sqlfluff/rules/L031.py` incorrectly triggers on single-table queries because it lacks a check for the presence of joins or multiple table references, despite its error message specifically referencing "join conditions".
+2. Modify `src/sqlfluff/rules/L031.py` in the `Rule_L031._eval` method to count the number of `from_expression_element` segments or check for `join_clause` segments within the `from_clause`.
+3. Specifically, update the logic in `_eval` to return `None` early if the query only contains a single `from_expression_element` and no `join_clause` is detected in the recursive crawl of the `from_clause`.
+4. Ensure that the `from_expression_elements` list collected in `_eval` contains more than one element before calling `self._lint_aliases_in_join(...)`.
+5. Validate the fix by running `sqlfluff lint reproduce_l031.sql --dialect tsql --rules L031` (should now pass) and `sqlfluff lint test_join_l031.sql --dialect tsql --rules L031` (should still fail).
+6. If the validation fails or if the rule still triggers on single-table queries, switch back to exploration to refine the detection of joins across different dialects.

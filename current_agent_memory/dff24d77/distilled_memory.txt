@@ -1,0 +1,39 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+=== DISTILLED TASK MEMORY ===
+
+ISSUE CORE:
+- `DateTime._bind_to_schema` (and by extension `Date`) raises an `AttributeError` when nested inside a container field like `List` or `Tuple`.
+- The cause is that container fields pass themselves as the `schema` argument to the inner field's `_bind_to_schema` method, but `DateTime` assumes this argument has an `opts` attribute (which only `Schema` objects have).
+
+OBSERVED BEHAVIOR:
+- Instantiating a `Schema` containing `fields.List(fields.DateTime())` or `fields.List(fields.Date())` fails with:
+  `AttributeError: 'List' object has no attribute 'opts'`
+- Traceback points to `src/marshmallow/fields.py`, line 1117, in `_bind_to_schema`.
+
+CONFIRMED RELEVANT FILES:
+- `src/marshmallow/fields.py`
+
+CONFIRMED IRRELEVANT PATHS:
+- None so far.
+
+ACTIVE HYPOTHESES:
+- `DateTime._bind_to_schema` needs to safely check for the existence of `schema.opts` or verify if `schema` is an instance of `Schema` before accessing it.
+- `Time` field might be unaffected as it does not inherit from `DateTime` and lacks a custom `_bind_to_schema` that accesses `opts`.
+
+INVALIDATED HYPOTHESES:
+- None so far.
+
+ATTEMPT LEDGER:
+- None so far.
+
+KNOWN REPRO / VALIDATION COMMANDS:
+- `export PYTHONPATH=$PYTHONPATH:$(pwd)/src`
+- `python3 reproduction.py` (Tests `List(DateTime())`)
+- `python3 reproduction_date.py` (Tests `List(Date())`)
+
+KEY CODE LOCATIONS:
+- `src/marshmallow/fields.py:1113` (`DateTime._bind_to_schema`)
+- `src/marshmallow/fields.py:633` (`List._bind_to_schema` - calls inner field's bind)
+- `src/marshmallow/fields.py:712` (`Tuple._bind_to_schema` - calls inner field's bind)

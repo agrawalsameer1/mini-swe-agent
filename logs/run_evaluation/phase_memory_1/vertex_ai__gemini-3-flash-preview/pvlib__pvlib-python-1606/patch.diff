@@ -1,0 +1,27 @@
+diff --git a/pvlib/tools.py b/pvlib/tools.py
+index 991568f..a9ee01a 100644
+--- a/pvlib/tools.py
++++ b/pvlib/tools.py
+@@ -348,15 +348,19 @@ def _golden_sect_DataFrame(params, lower, upper, func, atol=1e-8):
+     df['VH'] = upper
+     df['VL'] = lower
+ 
+-    converged = False
++    converged = (df['VH'] - df['VL']).abs().max() < atol
+     iterations = 0
+ 
+     # handle all NaN case gracefully
+     with warnings.catch_warnings():
+         warnings.filterwarnings(action='ignore',
+                                 message='All-NaN slice encountered')
+-        iterlimit = 1 + np.nanmax(
+-            np.trunc(np.log(atol / (df['VH'] - df['VL'])) / np.log(phim1)))
++        diff = df['VH'] - df['VL']
++        with np.errstate(divide='ignore', invalid='ignore'):
++            iterlimit = 1 + np.nanmax(
++                np.trunc(np.log(atol / diff.replace(0, np.nan)) / np.log(phim1)))
++        if np.isnan(iterlimit) or np.isinf(iterlimit):
++            iterlimit = 0
+ 
+     while not converged and (iterations <= iterlimit):
+ 

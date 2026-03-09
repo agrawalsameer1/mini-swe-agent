@@ -1,0 +1,55 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+=== DISTILLED TASK MEMORY ===
+
+ISSUE CORE:
+- `sqlfluff fix` (Rule L036) introduces an extra space of indentation (9 spaces instead of 8) for the first select target when moving it to a new line within a `WITH` statement.
+- Subsequent select targets are correctly indented (8 spaces).
+- A warning `WARNING One fix for L003 not applied, it would re-cause the same error.` is emitted, indicating a conflict between L036's fix and L003's indentation logic.
+- The root cause appears to be the positioning of the `[META] indent` segment relative to the inserted `newline` and existing `whitespace` in the `select_clause`.
+
+OBSERVED BEHAVIOR:
+- Original: `SELECT my_id,` (indented 4 spaces, `SELECT` at column 5).
+- Fixed: `my_id` is moved to a new line with 9 spaces of indentation.
+- Fixed: `other_thing` (second target) has 8 spaces of indentation.
+- Parse tree analysis shows `[META] indent` occurs at `P: 11`, followed by a `newline` and then `whitespace: '         '` (9 spaces).
+
+CONFIRMED RELEVANT FILES:
+- `src/sqlfluff/rules/L036.py`: Handles moving select targets to new lines.
+- `src/sqlfluff/rules/L003.py`: Handles indentation logic and reports conflicts.
+
+CONFIRMED IRRELEVANT PATHS:
+- None.
+
+ACTIVE HYPOTHESES:
+- L036 is inserting a newline *after* the `[META] indent` segment that is already present in the `select_clause` (between `SELECT` and the first element).
+- L003 adds an extra space because it tries to align with the `[META] indent` or fails to correctly calculate the base indentation when a `newline` is inserted immediately after a `meta` segment that was previously followed by a single space.
+- The `while` loop in L036 for cleaning up whitespace before the first target is failing to remove a specific whitespace segment that L003 then uses as a base for indentation.
+
+INVALIDATED HYPOTHESES:
+- Simply changing `WhitespaceSegment` to `NewlineSegment` + `Indent` in L036's `insert_buff` is sufficient to fix the issue (tested and failed).
+
+ATTEMPT LEDGER:
+- **Attempt 1**: Modified `src/sqlfluff/rules/L036.py` to fix `while` loop bounds, skip `meta` segments during whitespace cleanup, and use `NewlineSegment`/`Indent` in `insert_buff`.
+  - **Outcome**: Failed. The extra space (9 spaces) and L003 warning remained.
+
+KNOWN REPRO / VALIDATION COMMANDS:
+- `sqlfluff fix reproduce_issue.sql --force`
+- `sqlfluff parse reproduce_issue.sql`
+- Reproduction SQL:
+  ```sql
+  WITH example AS (
+      SELECT my_id,
+          other_thing,
+          one_more
+      FROM
+          my_table
+  )
+  SELECT * FROM example
+  ```
+
+KEY CODE LOCATIONS:
+- `src/sqlfluff/rules/L036.py`: `_eval_multiple_select_target_elements` (lines ~150-300).
+- `src/sqlfluff/rules/L003.py`: `_process_raw_stack`, `_reorder_raw_stack`.
+- `src/sqlfluff/dialects/dialect_ansi.py`: `select_clause` definition (contains the `[META] indent`).

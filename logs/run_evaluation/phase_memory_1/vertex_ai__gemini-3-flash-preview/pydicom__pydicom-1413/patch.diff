@@ -1,0 +1,32 @@
+diff --git a/pydicom/filewriter.py b/pydicom/filewriter.py
+index c1c06d893..ef0d308f4 100644
+--- a/pydicom/filewriter.py
++++ b/pydicom/filewriter.py
+@@ -280,10 +280,23 @@ def write_OWvalue(fp: DicomIO, elem: DataElement) -> None:
+ 
+     Note: This **does not currently do the byte swapping** for Endian state.
+     """
+-    # XXX for now just write the raw bytes without endian swapping
+-    fp.write(cast(bytes, elem.value))
+-
+-
++    if _is_multi_value(elem.value):
++        from struct import pack
++        format_chars = {
++            'OW': 'H',
++            'OL': 'L',
++            'OF': 'f',
++            'OD': 'd',
++            'OV': 'Q',
++        }
++        format_char = format_chars.get(elem.VR, 'H')
++        endian_char = '><'[fp.is_little_endian]
++        format_string = f"{endian_char}{format_char}"
++        for val in elem.value:
++            fp.write(pack(format_string, val))
++    else:
++        # XXX for now just write the raw bytes without endian swapping
++        fp.write(cast(bytes, elem.value))
+ def write_UI(fp: DicomIO, elem: DataElement) -> None:
+     """Write a data_element with VR of 'unique identifier' (UI)."""
+     write_string(fp, elem, '\0')  # pad with 0-byte to even length

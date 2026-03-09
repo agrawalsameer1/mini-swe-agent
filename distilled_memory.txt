@@ -1,39 +1,38 @@
 === DISTILLED TASK MEMORY ===
 Persistent summary of key knowledge about the task gathered across all phases.
 
-### DISTILLED TASK MEMORY
-
 ISSUE CORE:
-- The `pylint` linter in `sqlfluff` fails to correctly identify or execute the `pylint` executable, particularly when it is installed as a module or in specific environments, leading to execution errors.
+- Rule L031 ("Avoid table aliases in from clauses and join conditions") incorrectly triggers on single-table queries that use aliases, even when no `JOIN` is present.
+- The error message "Avoid using aliases in join condition" is misleading for single-table queries.
+- The rule implementation in `src/sqlfluff/rules/L031.py` lacks a check for the presence of multiple tables or explicit join clauses before flagging aliases.
+
+OBSERVED BEHAVIOR:
+- Running `sqlfluff lint` on `SELECT a.[hello] FROM mytable AS a` with `--dialect tsql` results in a violation: `L031 | Avoid using aliases in join condition`.
+- This behavior is also observed in other dialects (e.g., `ansi`).
+- The rule attempts to "fix" the query by replacing the alias with the full table name, which may not be desired in single-table contexts.
 
 CONFIRMED RELEVANT FILES:
-- `src/sqlfluff/utils/linter/pylint.py`: Likely contains the execution logic for the pylint wrapper.
-- `src/sqlfluff/core/config.py`: Handles configuration loading which might include linter paths.
+- `src/sqlfluff/rules/L031.py`: Contains the logic for Rule L031.
+- `test/fixtures/rules/std_rule_cases/L031.yml`: Contains existing test cases for the rule.
 
 CONFIRMED IRRELEVANT PATHS:
-- `src/sqlfluff/core/rules/`: Logic for internal SQL rules is unrelated to external linter execution.
+- None at this stage.
 
 ACTIVE HYPOTHESES:
-- The linter discovery logic relies on a hardcoded `pylint` command string that doesn't account for cases where `python -m pylint` is required.
-- The subprocess call does not correctly inherit the current Python interpreter's environment or `sys.path`.
+- Restricting Rule L031 to only trigger when `len(from_expression_elements) > 1` (indicating a join or multiple tables) will resolve the issue for single-table queries while preserving the rule's intent for joins.
+- Some existing test cases in `L031.yml` (like `alias_single_char_identifiers`) specifically test single-table aliases; these may need to be re-evaluated if the rule's scope is narrowed.
 
 INVALIDATED HYPOTHESES:
-- None yet.
+- The issue is NOT specific to the `tsql` dialect, though it was reported as such; it affects `ansi` as well.
 
 ATTEMPT LEDGER:
-- Initial exploration phase: Identified that the issue likely resides in how the external process is spawned.
+- (No patch attempts yet in this phase)
 
 KNOWN REPRO / VALIDATION COMMANDS:
-- `sqlfluff lint --config <config_with_pylint> <file.sql>`
-- `python -m pytest tests/` (Searching for specific pylint integration tests).
-
-IMPORTANT CONSTRAINTS:
-- Must maintain cross-platform compatibility (Windows/Linux/macOS).
-- Must handle cases where `pylint` is in the same virtualenv as `sqlfluff` vs. globally installed.
+- `echo 'SELECT a.[hello] FROM mytable AS a' > reproduce_issue.sql`
+- `PYTHONPATH=src python3 -m sqlfluff lint reproduce_issue.sql --dialect tsql --rules L031`
+- `PYTHONPATH=src python3 -m sqlfluff lint reproduce_std.sql --dialect ansi --rules L031`
 
 KEY CODE LOCATIONS:
-- `sqlfluff.utils.linter.pylint`: Core logic for invoking the external `pylint` process.
-
-OPEN RISKS:
-- Differences in `pylint` output formats across versions might break parsing if the execution method changes.
-- Security implications of how shell commands are constructed for subprocesses.
+- `src/sqlfluff/rules/L031.py`: `Rule_L031._eval` - Entry point for the rule logic.
+- `src/sqlfluff/rules/L031.py`: `Rule_L031._lint_aliases_in_join` - Where the violation is generated and the error message is defined.

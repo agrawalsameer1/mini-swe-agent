@@ -122,14 +122,65 @@ instance template:
 
 
 
-exploration_system_template: |
+  exploration_system_template: |
     A short exploration step has just completed.
 
     You recently inspected parts of the repository and gathered some information.
 
     Your first task now is to decide:
 
-    **Is the current information already sufficient to attempt a patch?**
+    **Is the current information in the scratchpad already sufficient to attempt a patch?**
+
+    If the answer is yes, you should immediately switch to EXECUTION.
+
+    Exploration exists only to produce a **first plausible patch attempt**.
+    It should be brief and opportunistic.
+
+    A patch attempt is possible if you can identify:
+
+    1. TARGET FILES – at least one likely file or code region to edit
+    2. HYPOTHESIS – a plausible explanation of the bug
+    3. PATCH PLAN – a candidate edit
+    4. VALIDATION PLAN – a command or test that would check the result
+
+    These do not need to be correct.
+    They only need to be plausible enough to try.
+
+    Important principles:
+
+    - Perfect certainty is unnecessary
+    - Root cause proof is unnecessary
+    - Open questions do not block switching
+    - Execution is the place to test ideas
+    - Exploration should stop as soon as a patch attempt is imaginable
+
+    Therefore your decision process should be:
+
+    Step 1: Ask whether the information already supports a plausible patch attempt.
+
+    Step 2:
+    - If yes → switch to execution.
+    - If no → perform one additional exploration step to fill the most important gap.
+
+    Staying in exploration should be rare.
+
+    If you are unsure whether to continue exploring or switch, prefer switching.
+
+    Allowed intents:
+    - CONTINUE_EXPLORATION
+    - SWITCH_TO_EXECUTION
+
+    Switching command:
+    {"phase": "execution"}
+
+  exploration_system_template: |
+    A short exploration step has just completed.
+
+    You recently inspected parts of the repository and gathered some information.
+
+    Your first task now is to decide:
+
+    **Is the current information in the scratchpad already sufficient to attempt a patch?**
 
     If the answer is yes, you should immediately switch to EXECUTION.
 
@@ -470,3 +521,243 @@ exploration_system_template: |
     After submission you must stop working on the task.
 
     </instructions>
+
+
+
+
+    STUFF
+
+    OPEN QUESTIONS:
+    - Remaining uncertainties that might affect the patch.
+
+    NEXT EXPLORATION ACTION:
+    - What exploration would do if it continues.
+
+
+
+
+
+
+SUNDAY 4 PM:
+
+distilled_memory_write_template: |
+    You are updating the distilled task memory for a coding agent.
+
+    This memory contains durable knowledge about the task that should
+    remain useful across multiple exploration and execution phases.
+
+    Only store information that is likely to remain true even if the
+    current hypothesis later changes.
+
+    Below, you are given the PREVIOUS DISTILLED MEMORY and a message TRANSCRIPT.
+    The TRANSCRIPT contains messages from the most recent agent phase.
+    Update the PREVIOUS DISTILLED MEMORY using the new information from the TRANSCRIPT.
+
+    Write the updated distilled memory in exactly this format:
+
+    ISSUE CORE:
+    - Short description of the bug and most likely cause(s).
+
+    CONFIRMED RELEVANT FILES:
+    - Files strongly related to the issue.
+
+    CONFIRMED IRRELEVANT PATHS:
+    - Files or modules that have been ruled out.
+
+    ACTIVE HYPOTHESES:
+    - Currently plausible explanations for the bug.
+
+    INVALIDATED HYPOTHESES:
+    - Hypotheses disproven by validation or inspection.
+
+    ATTEMPT LEDGER:
+    - Short summary of patch attempts and outcomes.
+
+    KNOWN REPRO / VALIDATION COMMANDS:
+    - Commands used to reproduce or verify the bug.
+
+    KEY CODE LOCATIONS:
+    - Important functions, classes, or modules related to the issue.
+
+    OPEN RISKS:
+    - Remaining uncertainties that could affect the fix.
+
+    Rules:
+    - Use exactly these headers in this order.
+    - Store durable facts that are likely to remain true.
+    - Avoid speculative claims unless labeled as a hypothesis.
+    - Keep entries short and information-dense.
+    - Prefer concrete file paths, functions, and commands.
+    - Modify or delete entries from the previous distilled memory only if you are absolutely sure.
+
+    PREVIOUS DISTILLED MEMORY:
+    {{memory}}
+
+    TRANSCRIPT:
+    {{transcript}}
+
+  exploration_handoff_write_template: |
+    You are generating the exploration handoff for a coding agent.
+
+    Exploration has finished and execution will begin.
+
+    You hve access to an EXPLORATION TRANSCRIPT.
+    This transcript contains messages from the most recent exploration phase.
+
+    Summarize these exploration results into a concrete patch attempt
+    that execution can immediately try.
+
+    Write the handoff in exactly this format:
+
+    TARGET FILES:
+    - Source files execution should inspect or modify.
+    - Hypothesis for why those files are relevant to the issue.
+    - Mention specific functions, rules, or logic if known.
+
+    PATCH PLAN:
+    - Concrete edits execution should attempt step by step.
+    - Prefer small, focused modifications in each step.
+
+    EXPECTED EFFECT:
+    - What behavior should change if the patch is correct.
+
+    VALIDATION PLAN:
+    - Commands or checks execution should run to verify the fix.
+
+    SWITCH REASON:
+    - Why exploration decided a patch attempt should happen now.
+
+    Rules:
+    - Use exactly these headers in this order.
+    - Be concise and technical.
+    - Prefer concrete file paths, functions, and commands.
+
+    EXPLORATION TRANSCRIPT:
+    {{transcript}}
+
+  execution_report_write_template: |
+    You are generating the execution report for a coding agent.
+
+    Execution has ended and the agent is returning to exploration.
+
+    You hve access to an EXECUTION TRANSCRIPT.
+    This transcript contains messages from the most recent execution phase.
+
+    Summarize these execution results so exploration can quickly decide what to
+    investigate next.
+
+    Write the report in exactly this format:
+
+    ATTEMPTED PATCH:
+    - Describe the change that was attempted.
+
+    FILES MODIFIED:
+    - Source files edited during execution.
+    - Summary of modifications to each file.
+
+    VALIDATION RESULT:
+    - Outcome of tests, repro commands, or validation checks.
+
+    IMPLICATIONS:
+    - What these results suggest about the bug.
+
+    EXPLORATION FOCUS:
+    - What exploration should investigate next.
+    - Give a concrete list of next exploration steps.
+
+    SWITCH REASON:
+    - Why execution returned to exploration.
+
+    Rules:
+    - Use exactly these headers in this order.
+    - Be concise and technical.
+    - Prefer concrete file paths and commands.
+
+    EXECUTION TRANSCRIPT:
+    {{transcript}}
+
+  exploration_scratchpad_write_template: |
+    NOTE: THIS IS NOT CURRENTLY UP TO DATE
+
+    You are updating the exploration scratchpad for a coding agent.
+
+    This scratchpad tracks temporary working state during the current
+    exploration phase.
+
+    The scratchpad should help the agent quickly decide the next action
+    or whether to switch to execution.
+
+    Write the scratchpad in exactly this format:
+
+    PREVIOUS COMMANDS RUN:
+    - ...
+
+    CURRENT HYPOTHESIS:
+    - Best current explanation for the bug.
+
+    CANDIDATE PATCH IDEA:
+    - The patch exploration currently believes execution should try.
+
+    VALIDATION IDEA:
+    - How execution should test that patch.
+
+    Rules:
+    - Use exactly these headers.
+    - Only summarize actions taken in this phase.
+    - Keep entries short and factual.
+    - Do NOT block switching due to uncertainty.
+    - If a plausible patch idea exists, execution should try it.
+
+    For PREVIOUS COMMANDS RUN, format your entries :
+    - 
+
+    TASK DESCRIPTION:
+    {{task}}
+
+    EXPLORATION TRANSCRIPT:
+    {{transcript}}
+
+  execution_scratchpad_write_template: |
+    NOTE: THIS IS NOT CURRENTLY UP TO DATE
+
+    You are updating the execution scratchpad for a coding agent.
+
+    The scratchpad tracks temporary state during the current execution phase.
+
+    Write the scratchpad in exactly this format:
+
+    FILES MODIFIED THIS PHASE:
+    - ...
+
+    COMMANDS RUN:
+    - ...
+
+    LATEST VALIDATION RESULT:
+    - Result of the most recent repro or test.
+
+    CURRENT HYPOTHESIS STATUS:
+    - One of:
+        CONFIRMED
+        PARTIALLY_SUPPORTED
+        INVALIDATED
+        UNCLEAR
+
+    CURRENT PATCH STATE:
+    - What the patch currently changes.
+
+    NEXT EXECUTION ACTION:
+    - What execution should attempt next.
+
+    SWITCH CONDITION:
+    - What situation would trigger switching back to exploration.
+
+    Rules:
+    - Use exactly these headers.
+    - Only summarize actions taken in this phase.
+    - Keep entries concise and factual.
+
+    TASK DESCRIPTION:
+    {{task}}
+
+    EXECUTION TRANSCRIPT:
+    {{transcript}}

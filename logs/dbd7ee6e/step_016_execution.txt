@@ -1,0 +1,686 @@
+STEP: 16
+PHASE: execution
+================================================================================
+FINAL BUILT PROMPT
+================================================================================
+
+[MESSAGE 1]
+role: system
+content:
+You are a helpful assistant that can interact with a computer shell to solve programming tasks.
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 2]
+role: user
+content:
+<pr_description>
+Consider the following PR description:
+dbt postgres fix command errors with UnicodeEncodeError and also wipes the .sql file
+_If this is a parsing or linting issue, please include a minimal SQL example which reproduces the issue, along with the `sqlfluff parse` output, `sqlfluff lint` output and `sqlfluff fix` output when relevant._
+
+## Expected Behaviour
+Violation failure notice at a minimum, without wiping the file. Would like a way to ignore the known error at a minimum as --noqa is not getting past this. Actually would expect --noqa to totally ignore this.
+
+## Observed Behaviour
+Reported error: `UnicodeEncodeError: 'charmap' codec can't encode character '\u2192' in position 120: character maps to <undefined>`
+
+## Steps to Reproduce
+SQL file:
+```sql
+SELECT
+    reacted_table_name_right.descendant_id AS category_id,
+    string_agg(redacted_table_name_left.name, ' → ' ORDER BY reacted_table_name_right.generations DESC) AS breadcrumbs -- noqa
+FROM {{ ref2('redacted_schema_name', 'redacted_table_name_left') }} AS redacted_table_name_left
+INNER JOIN {{ ref2('redacted_schema_name', 'reacted_table_name_right') }} AS reacted_table_name_right
+    ON redacted_table_name_left.id = order_issue_category_hierarchies.ancestor_id
+GROUP BY reacted_table_name_right.descendant_id
+```
+Running `sqlfluff fix --ignore templating,parsing,lexing -vvvv` and accepting proposed fixes for linting violations.
+
+## Dialect
+`postgres`, with `dbt` templater
+
+## Version
+`python 3.7.12`
+`sqlfluff 0.7.0`
+`sqlfluff-templater-dbt 0.7.0`
+
+## Configuration
+I've tried a few, here's one:
+```
+[sqlfluff]
+verbose = 2
+dialect = postgres
+templater = dbt
+exclude_rules = None
+output_line_length = 80
+runaway_limit = 10
+ignore_templated_areas = True
+processes = 3
+# Comma separated list of file extensions to lint.
+
+# NB: This config will only apply in the root folder.
+sql_file_exts = .sql
+
+[sqlfluff:indentation]
+indented_joins = False
+indented_using_on = True
+template_blocks_indent = True
+
+[sqlfluff:templater]
+unwrap_wrapped_queries = True
+
+[sqlfluff:templater:jinja]
+apply_dbt_builtins = True
+
+[sqlfluff:templater:jinja:macros]
+# Macros provided as builtins for dbt projects
+dbt_ref = {% macro ref(model_ref) %}{{model_ref}}{% endmacro %}
+dbt_source = {% macro source(source_name, table) %}{{source_name}}_{{table}}{% endmacro %}
+dbt_config = {% macro config() %}{% for k in kwargs %}{% endfor %}{% endmacro %}
+dbt_var = {% macro var(variable, default='') %}item{% endmacro %}
+dbt_is_incremental = {% macro is_incremental() %}True{% endmacro %}
+
+# Common config across rules
+[sqlfluff:rules]
+tab_space_size = 4
+indent_unit = space
+single_table_references = consistent
+unquoted_identifiers_policy = all
+
+# L001 - Remove trailing whitespace (fix)
+# L002 - Single section of whitespace should not contain both tabs and spaces (fix)
+# L003 - Keep consistent indentation (fix)
+# L004 - We use 4 spaces for indentation just for completeness (fix)
+# L005 - Remove space before commas (fix)
+# L006 - Operators (+, -, *, /) will be wrapped by a single space each side (fix)
+
+# L007 - Operators should not be at the end of a line
+[sqlfluff:rules:L007]  # Keywords
+operator_new_lines = after
+
+# L008 - Always use a single whitespace after a comma (fix)
+# L009 - Files will always end with a trailing newline
+
+# L010 - All keywords will use full upper case (fix)
+[sqlfluff:rules:L010]  # Keywords
+capitalisation_policy = upper
+
+# L011 - Always explicitly alias tables (fix)
+[sqlfluff:rules:L011]  # Aliasing
+aliasing = explicit
+
+# L012 - Do not have to explicitly alias all columns
+[sqlfluff:rules:L012]  # Aliasing
+aliasing = explicit
+
+# L013 - Always explicitly alias a column with an expression in it (fix)
+[sqlfluff:rules:L013]  # Aliasing
+allow_scalar = False
+
+# L014 - Always user full lower case for 'quoted identifiers' -> column refs. without an alias (fix)
+[sqlfluff:rules:L014]  # Unquoted identifiers
+extended_capitalisation_policy = lower
+
+# L015 - Always remove parenthesis when using DISTINCT to be clear that DISTINCT applies to all columns (fix)
+
+# L016 - Lines should be 120 characters of less. Comment lines should not be ignored (fix)
+[sqlfluff:rules:L016]
+ignore_comment_lines = False
+max_line_length = 120
+
+# L017 - There should not be whitespace between function name and brackets (fix)
+# L018 - Always align closing bracket of WITH to the WITH keyword (fix)
+
+# L019 - Always use trailing commas / commas at the end of the line (fix)
+[sqlfluff:rules:L019]
+comma_style = trailing
+
+# L020 - Table aliases will always be unique per statement
+# L021 - Remove any use of ambiguous DISTINCT and GROUP BY combinations. Lean on removing the GROUP BY.
+# L022 - Add blank lines after common table expressions (CTE) / WITH.
+# L023 - Always add a single whitespace after AS in a WITH clause (fix)
+
+[sqlfluff:rules:L026]
+force_enable = False
+
+# L027 - Always add references if more than one referenced table or view is used
+
+[sqlfluff:rules:L028]
+force_enable = False
+
+[sqlfluff:rules:L029]  # Keyword identifiers
+unquoted_identifiers_policy = aliases
+
+[sqlfluff:rules:L030]  # Function names
+capitalisation_policy = upper
+
+# L032 - We prefer use of join keys rather than USING
+# L034 - We prefer ordering of columns in select statements as (fix):
+# 1. wildcards
+# 2. single identifiers
+# 3. calculations and aggregates
+
+# L035 - Omit 'else NULL'; it is redundant (fix)
+# L036 - Move select targets / identifiers onto new lines each (fix)
+# L037 - When using ORDER BY, make the direction explicit (fix)
+
+# L038 - Never use trailing commas at the end of the SELECT clause
+[sqlfluff:rules:L038]
+select_clause_trailing_comma = forbid
+
+# L039 - Remove unnecessary whitespace (fix)
+
+[sqlfluff:rules:L040]  # Null & Boolean Literals
+capitalisation_policy = upper
+
+# L042 - Join clauses should not contain subqueries. Use common tables expressions (CTE) instead.
+[sqlfluff:rules:L042]
+# By default, allow subqueries in from clauses, but not join clauses.
+forbid_subquery_in = join
+
+# L043 - Reduce CASE WHEN conditions to COALESCE (fix)
+# L044 - Prefer a known number of columns along the path to the source data
+# L045 - Remove unused common tables expressions (CTE) / WITH statements (fix)
+# L046 - Jinja tags should have a single whitespace on both sides
+
+# L047 - Use COUNT(*) instead of COUNT(0) or COUNT(1) alternatives (fix)
+[sqlfluff:rules:L047]  # Consistent syntax to count all rows
+prefer_count_1 = False
+prefer_count_0 = False
+
+# L048 - Quoted literals should be surrounded by a single whitespace (fix)
+# L049 - Always use IS or IS NOT for comparisons with NULL (fix)
+```
+
+
+</pr_description>
+
+<instructions>
+# EXECUTION PHASE
+
+You are currently in the **EXECUTION phase**.
+
+Your goal for the current phase is to **implement and validate a single patch attempt**
+based on the **exploration handoff**.
+
+The exploration handoff contains a step-by-step patch plan generated during the
+previous exploration phase.
+
+You should treat the **exploration handoff as the highest priority instruction**.
+
+Your responsibilities in this phase are:
+
+- implement the patch described in the handoff
+- follow the steps from the handoff in order
+- run the validation commands specified in the handoff
+- confirm whether the patch succeeds or fails
+
+Execution should focus on **editing files and validating behavior**, not
+exploring the codebase.
+
+Avoid running unnecessary exploration commands unless they are strictly needed
+to implement the patch.
+
+</instructions>
+
+<memory_system>
+# Memory System
+
+The agent maintains two forms of memory.
+
+## Distilled Memory (long-term)
+
+This contains durable knowledge discovered during previous phases, such as:
+
+- confirmed relevant files
+- invalidated hypotheses
+- previous patch attempts
+- reproduction commands
+- important code locations
+
+Distilled memory helps avoid repeating failed approaches.
+
+## Exploration Handoff (handoff from exploration)
+
+The exploration handoff contains the **patch plan** produced during the
+previous exploration phase.
+
+It includes:
+
+- the bug hypothesis
+- the target file(s)
+- the planned code edits
+- the validation command
+
+Treat the exploration handoff as the **primary guide for this phase**.
+
+Follow the handoff steps closely when implementing the patch.
+
+</memory_system>
+
+## Important Boundaries
+
+- MODIFY: Regular source code files in /testbed (this is the working directory for all your subsequent commands)
+- DO NOT MODIFY: Tests, configuration files (pyproject.toml, setup.cfg, etc.)
+
+<recommended_workflow>
+# Recommended Execution Workflow
+
+Typical execution steps include:
+
+1. Read the relevant file(s) mentioned in the handoff
+2. Implement the specified code change
+3. Run the validation command(s)
+4. Observe whether the bug is fixed
+
+A successful execution phase will either:
+
+- confirm that the patch fixes the issue, or
+- determine that the patch attempt failed
+
+If the validation command confirms the issue is resolved, the correct next step
+is to submit the patch rather than continuing execution.
+
+</recommended_workflow>
+
+<phase_switching>
+# Phase Switching (CRITICAL)
+
+Execution should switch back to **EXPLORATION** if:
+
+- the patch attempt from the exploration handoff has been implemented
+- the validation command has been run
+- the patch did NOT resolve the issue
+- additional investigation is required
+
+In this case, call the `switch_phase` tool with:
+{"phase": "exploration"}
+
+Include a short explanation of why further exploration is needed.
+
+Do NOT continue attempting multiple unrelated patches within the same
+execution phase.
+
+Each execution phase should correspond to **one patch attempt**.
+
+If the handoff steps have been completed and the patch failed,
+**switch back to exploration immediately**.
+
+</phase_switching>
+
+<command_rules>
+# Command Execution Rules
+
+You are operating in an environment where:
+
+1. You issue commands
+2. The system executes them in a subshell
+3. You see the results
+4. You issue the next command(s)
+
+Each response must include:
+
+1. A **THOUGHT** section explaining your reasoning
+2. At least one **tool call**
+
+Tool calls may be:
+
+- bash commands (for implementing the patch or running validation)
+- switch_phase (if the patch attempt fails and exploration is needed)
+
+</command_rules>
+
+<allowed_actions>
+# Allowed Execution Actions
+
+During execution you may:
+
+- edit source files
+- create or modify code
+- run validation commands
+- inspect relevant files referenced in the handoff
+- run tests or reproduction commands
+
+</allowed_actions>
+
+<forbidden_actions>
+# Forbidden Actions in Execution
+
+During execution you should NOT:
+
+- perform broad exploration of unrelated files
+- search the entire codebase for new hypotheses
+- attempt multiple independent patch strategies
+
+Those actions belong in **EXPLORATION phase**.
+
+</forbidden_actions>
+
+<environment>
+# Environment Details
+
+- You have a full Linux shell environment
+- Always use non-interactive flags (-y, -f) for commands
+- Avoid interactive tools like `vim` or `nano`
+- Directory changes are not persistent between commands
+- Prefix commands with `cd` if necessary
+
+</environment>
+
+<response_format>
+# Response Format
+
+Each response must follow this format:
+
+THOUGHT:
+Explain your reasoning and the step you are executing from the handoff.
+
+Then include **one or more tool calls**.
+
+Example of switching phases if the patch fails:
+<example_response>
+I implemented the patch described in the exploration handoff and ran the
+validation command, but the bug still occurs. The patch attempt was
+unsuccessful and additional investigation is required.
+
+[Calls switch_phase tool: {"phase": "exploration", "reason": "Patch attempt completed and validation failed. Additional investigation is required."}]
+</example_response>
+
+Example of continuing execution:
+<example_response>
+The exploration handoff indicates that the bug likely occurs in
+`src/parser/query_validator.py`. I will inspect the function responsible
+for alias validation before implementing the patch.
+
+[Makes bash tool calls: {"command": "sed -n '1,200p' src/parser/query_validator.py"}]
+</example_response>
+
+</response_format>
+
+<tool_requirement>
+# REQUIRED ACTION (CRITICAL)
+
+Every response MUST end with a tool call.
+
+You have exactly TWO possible actions:
+
+1. Call the `bash` tool
+2. Call the `switch_phase` tool
+
+You MUST choose one of these actions on EVERY step.
+
+A response without a tool call is INVALID.
+
+Text-only responses are INVALID.
+
+Never finish a response without a tool call.
+</tool_requirement>
+
+# Successful Execution
+
+If the patch from the exploration handoff has been implemented and the validation
+commands no longer reproduce the issue, you should assume the patch is correct
+and proceed to submission.
+
+You do NOT need absolute certainty. If the validation results indicate the bug
+is resolved and there are no obvious regressions, submitting the patch is the
+correct next action.
+
+Execution phases are expected to end in one of two outcomes:
+
+1. The patch fails → switch back to exploration
+2. The patch appears correct → submit the patch
+
+## Submission
+
+During the EXECUTION phase you may submit a patch if the validation results 
+indicate the patch likely fixes the issue.
+
+Before submitting, you should:
+
+- implement the patch described in the exploration handoff
+- run the validation or reproduction commands
+- confirm that the issue appears to be resolved
+
+If the validation fails or the bug still occurs, **do NOT submit**.
+Instead, switch back to exploration using the `switch_phase` tool so that
+additional investigation can occur.
+
+If you are confident that the patch fixes the issue, you MUST submit your
+changes as a git patch.
+
+Follow these steps IN ORDER, with SEPARATE commands:
+
+Step 1: Create the patch file  
+Run:
+
+`git diff -- path/to/file1 path/to/file2 > patch.txt`
+
+listing only the source files you modified.
+
+Do NOT commit your changes.
+
+<IMPORTANT>
+The patch must only contain changes to the specific source files you modified to fix the issue.
+
+Do not submit file creations or changes to any of the following files:
+
+- test and reproduction files
+- helper scripts, tests, or tools that you created
+- installation, build, packaging, configuration, or setup scripts unless they are directly part of the issue you were fixing (you can assume that the environment is already set up for your client)
+- binary or compiled files
+</IMPORTANT>
+
+Step 2: Verify your patch  
+Inspect `patch.txt` to confirm it only contains your intended changes and that
+the headers show `--- a/` and `+++ b/` paths.
+
+Step 3: Submit (EXACT command required)
+
+You MUST use this EXACT command to submit:
+
+```bash
+echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt
+
+</instructions>
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 3]
+role: user
+content:
+=== CURRENT OBJECTIVE ===
+Execute the patch plan identified during exploration and validate the fix.
+
+1. The bug hypothesis is that `sqlfluff fix` wipes files when a `UnicodeEncodeError` occurs during the write operation in `src/sqlfluff/core/linter/linted_file.py`. This happens because the file is opened in `"w"` mode (which truncates it) before the content is successfully encoded and written.
+2. The primary target for the fix is `src/sqlfluff/core/linter/linted_file.py`, specifically the `persist_tree` method.
+3. Modify `src/sqlfluff/core/linter/linted_file.py` to import `tempfile` and `shutil`.
+4. In `LintedFile.persist_tree`, instead of opening the target file directly for writing, create a named temporary file in the same directory as the target file.
+5. Write the `write_buff` to the temporary file using the specified `self.encoding`.
+6. After a successful write, use `shutil.move` or `os.replace` to atomically replace the original file with the temporary one.
+7. Validate the fix by running the reproduction command: `export PYTHONPATH=$PYTHONPATH:$(pwd)/src && python3 -m sqlfluff.cli.main fix reproduce_issue.sql --ignore templating,parsing,lexing --force`. (Note: If `pytest` is still missing, a mock or temporary removal of the import in `src/sqlfluff/__init__.py` may be required for validation).
+8. If the validation command still fails with a `UnicodeEncodeError` but the original file is preserved (not wiped), the patch is successful in preventing data loss. If the file is still wiped, switch back to exploration.
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 4]
+role: user
+content:
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+```python
+=== DISTILLED TASK MEMORY ===
+
+ISSUE CORE:
+- `sqlfluff fix` can wipe (truncate to 0 bytes) a SQL file if a `UnicodeEncodeError` occurs during the write operation.
+- This happens because `open(fname, "w", encoding=self.encoding)` truncates the file immediately, but the subsequent `f.write()` fails if the detected or provided encoding cannot handle specific characters (e.g., `→` / `\u2192`).
+
+OBSERVED BEHAVIOR:
+- Running `sqlfluff fix` on a file containing non-ASCII characters (like `→`) in an environment with a restrictive locale (e.g., `LC_CTYPE="POSIX"`) results in an empty file.
+- Error message: `UnicodeEncodeError: 'charmap' codec can't encode character '\u2192' in position ...: character maps to <undefined>`.
+
+CONFIRMED RELEVANT FILES:
+- `src/sqlfluff/core/linter/linted_file.py`: Contains the `persist_tree` method which performs the file write.
+- `src/sqlfluff/core/linter/linter.py`: Instantiates `LintedFile` and passes the `encoding` parameter.
+
+CONFIRMED IRRELEVANT PATHS:
+- None yet.
+
+ACTIVE HYPOTHESES:
+- The file wiping is caused by the non-atomic write in `LintedFile.persist_tree`. Using a temporary file and `os.replace` (or similar) would prevent the original file from being truncated if the encoding fails.
+- The `encoding` attribute in `LintedFile` might be incorrectly detected or defaulted in certain environments, leading to the mismatch.
+
+INVALIDATED HYPOTHESES:
+- None yet.
+
+ATTEMPT LEDGER:
+- None yet.
+
+KNOWN REPRO / VALIDATION COMMANDS:
+- `python3 -m sqlfluff.cli.main fix reproduce_issue.sql --force` (Requires `pytest` to be installed or mocked due to imports in `sqlfluff/__init__.py`).
+- Manual reproduction script: `python3 -c "with open('test.sql', 'w', encoding='ascii') as f: f.write('\u2192')"` (Simulates the failure).
+
+KEY CODE LOCATIONS:
+- `src/sqlfluff/core/linter/linted_file.py`: `persist_tree` method (lines ~1000+).
+- `src/sqlfluff/core/linter/linter.py`: `lint_parsed` method (lines ~450-500).
+```
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 5]
+role: user
+content:
+=== CURRENT PHASE CONTEXT ===
+These messages contain the transcript of the current phase, including your previous actions, command outputs, and reasoning.
+Use this information to decide whether to continue the phase or switch phases.
+
+STEP 1
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "cat src/sqlfluff/core/linter/linted_file.py | grep -n \"def persist_tree\" -A 20"}
+
+STEP 2
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+486:    def persist_tree(self, suffix: str = "") -> bool:
+487-        """Persist changes to the given path."""
+488-        write_buff, success = self.fix_string()
+489-
+490-        if success:
+491-            fname = self.path
+492-            # If there is a suffix specified, then use it.s
+493-            if suffix:
+494-                root, ext = os.path.splitext(fname)
+495-                fname = root + suffix + ext
+496-            # Actually write the file.
+497-            with open(fname, "w", encoding=self.encoding) as f:
+498-                f.write(write_buff)
+499-        return success
+</output>
+
+--------------------------------------------------------------------------------
+
+
+================================================================================
+MODEL RESPONSE
+================================================================================
+
+{'content': 'THOUGHT:\n'
+            'I will now implement the fix in '
+            '`src/sqlfluff/core/linter/linted_file.py`. The plan is to use a '
+            'temporary file to write the content and then move it to the '
+            'target location. This ensures that if a `UnicodeEncodeError` '
+            'occurs during the write, the original file remains untouched.\n'
+            '\n'
+            "I'll first check the imports in "
+            '`src/sqlfluff/core/linter/linted_file.py` to see if I need to add '
+            '`tempfile` and `shutil`.\n'
+            '\n',
+ 'extra': {'actions': [{'command': 'head -n 30 '
+                                   'src/sqlfluff/core/linter/linted_file.py',
+                        'tool': 'bash',
+                        'tool_call_id': 'call_6d506b335a9c48b3a8d14423626f__thought__CiEBjz1rXzymlj/Y52+H+RFOpiZcA1mQ2VgBezr7plCoRxc='}],
+           'cost': 0.0012823,
+           'phase': 'execution',
+           'response': {'choices': [{'finish_reason': 'tool_calls',
+                                     'index': 0,
+                                     'message': {'content': 'THOUGHT:\n'
+                                                            'I will now '
+                                                            'implement the fix '
+                                                            'in '
+                                                            '`src/sqlfluff/core/linter/linted_file.py`. '
+                                                            'The plan is to '
+                                                            'use a temporary '
+                                                            'file to write the '
+                                                            'content and then '
+                                                            'move it to the '
+                                                            'target location. '
+                                                            'This ensures that '
+                                                            'if a '
+                                                            '`UnicodeEncodeError` '
+                                                            'occurs during the '
+                                                            'write, the '
+                                                            'original file '
+                                                            'remains '
+                                                            'untouched.\n'
+                                                            '\n'
+                                                            "I'll first check "
+                                                            'the imports in '
+                                                            '`src/sqlfluff/core/linter/linted_file.py` '
+                                                            'to see if I need '
+                                                            'to add `tempfile` '
+                                                            'and `shutil`.\n'
+                                                            '\n',
+                                                 'function_call': None,
+                                                 'images': [],
+                                                 'provider_specific_fields': {'thought_signatures': ['CiEBjz1rXzymlj/Y52+H+RFOpiZcA1mQ2VgBezr7plCoRxc=']},
+                                                 'role': 'assistant',
+                                                 'thinking_blocks': [],
+                                                 'tool_calls': [{'function': {'arguments': '{"command": '
+                                                                                           '"head '
+                                                                                           '-n '
+                                                                                           '30 '
+                                                                                           'src/sqlfluff/core/linter/linted_file.py"}',
+                                                                              'name': 'bash'},
+                                                                 'id': 'call_6d506b335a9c48b3a8d14423626f__thought__CiEBjz1rXzymlj/Y52+H+RFOpiZcA1mQ2VgBezr7plCoRxc=',
+                                                                 'index': 0,
+                                                                 'provider_specific_fields': {'thought_signature': 'CiEBjz1rXzymlj/Y52+H+RFOpiZcA1mQ2VgBezr7plCoRxc='},
+                                                                 'type': 'function'}]}}],
+                        'created': 1773037268,
+                        'id': '1Gauaaa7GpWAitUP--DRuQ8',
+                        'model': 'gemini-3-flash-preview',
+                        'object': 'chat.completion',
+                        'system_fingerprint': None,
+                        'usage': {'cache_read_input_tokens': 4156,
+                                  'completion_tokens': 146,
+                                  'completion_tokens_details': {'text_tokens': 146},
+                                  'prompt_tokens': 5429,
+                                  'prompt_tokens_details': {'audio_tokens': None,
+                                                            'cached_tokens': 4156,
+                                                            'image_tokens': None,
+                                                            'text_tokens': 1273},
+                                  'total_tokens': 5575},
+                        'vertex_ai_citation_metadata': [],
+                        'vertex_ai_grounding_metadata': [],
+                        'vertex_ai_safety_results': [],
+                        'vertex_ai_url_context_metadata': []},
+           'step_index': 16,
+           'timestamp': 1773037270.590189},
+ 'function_call': None,
+ 'images': [],
+ 'provider_specific_fields': {'thought_signatures': ['CiEBjz1rXzymlj/Y52+H+RFOpiZcA1mQ2VgBezr7plCoRxc=']},
+ 'role': 'assistant',
+ 'thinking_blocks': [],
+ 'tool_calls': [{'function': {'arguments': '{"command": "head -n 30 '
+                                           'src/sqlfluff/core/linter/linted_file.py"}',
+                              'name': 'bash'},
+                 'id': 'call_6d506b335a9c48b3a8d14423626f__thought__CiEBjz1rXzymlj/Y52+H+RFOpiZcA1mQ2VgBezr7plCoRxc=',
+                 'index': 0,
+                 'provider_specific_fields': {'thought_signature': 'CiEBjz1rXzymlj/Y52+H+RFOpiZcA1mQ2VgBezr7plCoRxc='},
+                 'type': 'function'}]}

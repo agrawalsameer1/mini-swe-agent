@@ -1,0 +1,41 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+=== DISTILLED TASK MEMORY ===
+
+ISSUE CORE:
+- `pvlib.iam.physical` returns `NaN` when `aoi >= 90` and `n = 1`.
+- Regression caused by division by zero (0/0) in reflectance calculations (`rho12_s`, `rho12_p`) when `costheta` is 0 and `n` is 1.
+- Expected behavior for `aoi >= 90` is an IAM of 0, consistent with other models like `iam.ashrae`.
+
+OBSERVED BEHAVIOR:
+- `pvlib.iam.physical(aoi=100, n=1)` returns `nan`.
+- RuntimeWarnings: `invalid value encountered in scalar divide` and `divide by zero encountered in scalar divide`.
+- Environment conflict: NumPy 2.0 removal of `np.Inf` and `np.NaN` prevents library import without patches.
+
+CONFIRMED RELEVANT FILES:
+- `pvlib/iam.py`: Contains the `physical` function implementation.
+- `pvlib/singlediode.py`: Contains `np.Inf` usage (NumPy 2.0 incompatibility).
+- `pvlib/pvsystem.py`: Contains `np.Inf` usage (NumPy 2.0 incompatibility).
+
+CONFIRMED IRRELEVANT PATHS:
+- None so far.
+
+ACTIVE HYPOTHESES:
+- Explicitly handling `aoi >= 90` by returning 0 in `pvlib.iam.physical` will fix the `NaN` result and align it with other IAM functions.
+
+INVALIDATED HYPOTHESES:
+- None.
+
+ATTEMPT LEDGER:
+- **PRE-REPRO FIX**: Applied `sed` to replace `np.Inf` with `np.inf` and `np.NaN` with `np.nan` across the codebase to allow execution under NumPy 2.0.
+- **REPRO**: Created `reproduce_bug.py` which confirmed `NaN` output for `aoi=100, n=1`.
+
+KNOWN REPRO / VALIDATION COMMANDS:
+- `python reproduce_bug.py` (Checks if `pvlib.iam.physical(aoi=100, n=1)` is `nan`).
+- `pytest pvlib/tests/test_iam.py` (To ensure no regressions in IAM module).
+
+KEY CODE LOCATIONS:
+- `pvlib/iam.py`: `physical` function (starts around line 94).
+- `pvlib/iam.py`: Lines 178-179 (reflectance calculation where `NaN` originates).
+- `pvlib/iam.py`: Lines 211-212 (transmittance calculation where `inf` originates).

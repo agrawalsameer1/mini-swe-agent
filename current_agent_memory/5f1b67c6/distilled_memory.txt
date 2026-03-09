@@ -1,0 +1,35 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+=== DISTILLED TASK MEMORY ===
+
+ISSUE CORE:
+- `pvlib.temperature.fuentes` fails when the input `poa_global` has a timezone-aware index.
+- The failure occurs during the calculation of `timedelta_hours` because `np.diff()` on a timezone-aware `DatetimeIndex` returns an array of `Timedelta` objects, which cannot be cast directly to `float` via `.astype(float)`.
+
+OBSERVED BEHAVIOR:
+- `TypeError: float() argument must be a string or a real number, not 'Timedelta'`
+- Occurs at `pvlib/temperature.py:602`.
+- Naive indices work correctly because `np.diff` on them returns nanosecond integers (in some pandas/numpy versions) or compatible types, whereas TZ-aware indices return `Timedelta` objects.
+
+CONFIRMED RELEVANT FILES:
+- `pvlib/temperature.py`: Contains the `fuentes` function and the failing line.
+
+CONFIRMED IRRELEVANT PATHS:
+- None so far.
+
+ACTIVE HYPOTHESES:
+- Using `poa_global.index.asi8` to extract the underlying nanosecond integers before calling `np.diff` will provide a consistent, timezone-agnostic numeric array suitable for float conversion.
+
+INVALIDATED HYPOTHESES:
+- None so far.
+
+ATTEMPT LEDGER:
+- (No patches applied yet)
+
+KNOWN REPRO / VALIDATION COMMANDS:
+- `python reproduce_bug.py`: A script that runs `fuentes` with both naive and TZ-aware indices.
+- Environment requires: `pip install "numpy<2.0" pandas pytz scipy` (Note: NumPy 2.0 is currently incompatible with other parts of the codebase, e.g., `np.Inf`).
+
+KEY CODE LOCATIONS:
+- `pvlib/temperature.py`: Line 602 in `fuentes` function: `timedelta_hours = np.diff(poa_global.index).astype(float) / 1e9 / 60 / 60`

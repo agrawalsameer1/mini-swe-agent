@@ -1,0 +1,28 @@
+diff --git a/src/sqlfluff/core/linter/linted_file.py b/src/sqlfluff/core/linter/linted_file.py
+index 3a8593edd..151f2618f 100644
+--- a/src/sqlfluff/core/linter/linted_file.py
++++ b/src/sqlfluff/core/linter/linted_file.py
+@@ -7,6 +7,8 @@ post linting.
+ 
+ import os
+ import logging
++import tempfile
++import shutil
+ from typing import (
+     Any,
+     Iterable,
+@@ -494,6 +496,12 @@ class LintedFile(NamedTuple):
+                 root, ext = os.path.splitext(fname)
+                 fname = root + suffix + ext
+             # Actually write the file.
+-            with open(fname, "w", encoding=self.encoding) as f:
++            # We use a temporary file to avoid wiping the original file
++            # if an encoding error occurs during the write.
++            dirpath = os.path.dirname(fname)
++            with tempfile.NamedTemporaryFile(
++                "w", encoding=self.encoding, dir=dirpath, delete=False
++            ) as f:
++                tmp_name = f.name
+                 f.write(write_buff)
+-        return success
++            shutil.move(tmp_name, fname)

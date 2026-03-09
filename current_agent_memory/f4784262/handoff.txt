@@ -1,0 +1,21 @@
+=== CURRENT OBJECTIVE ===
+Execute the patch plan identified during exploration and validate the fix.
+
+1. The bug hypothesis is that `RectilinearGrid.__init__` in `pyvista/core/grid.py` uses strict `isinstance(arg, np.ndarray)` checks, which causes a `TypeError` when users pass lists or other sequences. The target file is `pyvista/core/grid.py`.
+
+2. In `pyvista/core/grid.py`, modify the `RectilinearGrid.__init__` method (around lines 140-165) to replace strict `isinstance(args[i], np.ndarray)` checks with a more permissive check or by attempting to convert inputs to numpy arrays.
+
+3. Specifically, update the logic for `len(args) == 1`, `len(args) == 2`, and `len(args) == 3` to ensure that if the arguments are sequences (like lists), they are converted to numpy arrays before being passed to `self._from_arrays`.
+
+4. Use `np.asanyarray()` to convert the input arguments `args[0]`, `args[1]`, and `args[2]` to numpy arrays if they are not already, provided they are not other handled types (like `vtkRectilinearGrid` or strings).
+
+5. Validate the fix by running a script that attempts to initialize `RectilinearGrid` with lists:
+   ```python
+   import numpy as np
+   from pyvista.core.grid import RectilinearGrid
+   grid = RectilinearGrid([0, 1], [0, 1], [0, 1])
+   print("Success")
+   ```
+   Note: If `numpy` is missing from the environment, use `pip install numpy` first if possible, or verify the logic via static analysis if the environment is restricted.
+
+6. If the validation script runs without a `TypeError`, the patch is successful. Otherwise, switch back to exploration to investigate if other grid types (like `StructuredGrid`) suffer from the same strict type checking.

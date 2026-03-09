@@ -1,17 +1,73 @@
 agent:
   distilled_memory_write_template: |
-    You are updating the distilled task memory for a coding agent.
+    You are updating the long-term distilled memory for a coding agent.
 
-    This memory contains durable knowledge about the task that should
-    remain useful across multiple exploration and execution phases.
+    The distilled memory stores the most important durable knowledge about the
+    current debugging task. It is shared across multiple exploration and execution phases.
 
-    Only store information that is likely to remain true even if the
-    current hypothesis later changes.
+    Your job is to update the memory using:
+    - the EXISTING DISTILLED MEMORY
+    - the most recent phase transcript
+    - the task description
 
-    Write the updated distilled memory in exactly this format:
+    The goal is to preserve important discoveries while incorporating new
+    confirmed information from the latest phase.
+
+    The memory must remain:
+    - concise
+    - concrete
+    - grounded in actual files, functions, commands, or observed behavior
+
+    ----------------------------
+    UPDATE RULES
+    ----------------------------
+
+    1. Prefer ADDING information rather than removing it.
+
+    2. Only remove or modify existing entries if there is strong evidence
+      that they are incorrect.
+
+    3. When possible, reference:
+      - file paths
+      - functions
+      - classes
+      - test names
+      - commands
+      - observed outputs
+
+    4. Do NOT include speculation unless it is clearly placed under ACTIVE HYPOTHESES.
+
+    5. If a hypothesis has been disproven, move it to INVALIDATED HYPOTHESES
+      rather than deleting it.
+
+    6. Record patch attempts in ATTEMPT LEDGER with short summaries of:
+      - files modified
+      - validation commands
+      - outcome
+
+    7. Avoid vague statements such as:
+      - "the issue might be somewhere in parsing"
+      - "some files seem relevant"
+
+      Instead reference specific code locations when possible.
+
+    8. Do not repeat identical information across sections.
+
+    9. Keep entries short and information-dense.
+
+    10. Preserve information already present in the memory unless it is clearly invalid.
+
+    ----------------------------
+    REQUIRED MEMORY FORMAT
+    ----------------------------
+
+    Write the updated memory in exactly this format:
 
     ISSUE CORE:
-    - Short description of the task or bug.
+    - Short description of the bug and most likely cause(s).
+
+    OBSERVED BEHAVIOR:
+    - Concrete observed behavior such as failing tests, error messages, or incorrect outputs.
 
     CONFIRMED RELEVANT FILES:
     - Files strongly related to the issue.
@@ -31,71 +87,83 @@ agent:
     KNOWN REPRO / VALIDATION COMMANDS:
     - Commands used to reproduce or verify the bug.
 
-    IMPORTANT CONSTRAINTS:
-    - Rules the patch must follow (e.g., do not modify tests).
-
     KEY CODE LOCATIONS:
     - Important functions, classes, or modules related to the issue.
 
-    OPEN RISKS:
-    - Remaining uncertainties that could affect the fix.
+    ----------------------------
+    GUIDANCE
+    ----------------------------
 
-    Rules:
-    - Use exactly these headers in this order.
-    - Store durable facts, not temporary exploration notes.
-    - Do NOT repeat the transcript.
-    - Avoid speculative claims unless labeled as a hypothesis.
-    - Keep entries short and information-dense.
-    - Prefer concrete file paths, functions, and commands.
+    A good distilled memory should allow a new agent to quickly understand:
 
-    PREVIOUS DISTILLED MEMORY:
-    {{memory}}
+    - what the bug is
+    - which files matter
+    - what has already been tried
+    - which hypotheses remain plausible
+    - how to reproduce or validate the issue
 
-    TRANSCRIPT:
+    Do not include conversational text or explanations outside the sections.
+
+    ----------------------------
+    EXISTING DISTILLED MEMORY
+    ----------------------------
+    {{existing_memory}}
+
+    ----------------------------
+    RECENT PHASE TRANSCRIPT
+    ----------------------------
     {{transcript}}
 
   exploration_handoff_write_template: |
     You are generating the exploration handoff for a coding agent.
 
-    Exploration has finished and execution will begin.
+    Exploration has ended. The next phase is EXECUTION.
 
-    Summarize the exploration results into a concrete patch attempt
-    that execution can immediately try.
+    You have access to:
+    1. the long-term distilled memory
+    2. the EXPLORATION TRANSCRIPT from the most recent exploration phase
 
-    Write the handoff in exactly this format:
+    Your job is to produce a handoff that lets execution attempt exactly ONE concrete patch.
 
-    ISSUE SUMMARY:
-    - Brief description of the bug or task.
+    The handoff must be specific enough that execution can begin editing files immediately,
+    without doing more codebase exploration.
 
-    CURRENT HYPOTHESIS:
-    - Most likely cause of the issue.
-    - Mention specific functions, rules, or logic if known.
+    Write the handoff as a numbered list in exactly this format:
 
-    TARGET FILES:
-    - Source files execution should inspect or modify.
+    1. ...
+    2. ...
+    3. ...
+    ...
 
-    PATCH PLAN:
-    - Concrete edits execution should attempt.
-    - Prefer small, focused modifications.
+    Requirements:
+    - The plan must correspond to exactly ONE patch attempt, based on a single bug hypothesis.
+    - The first step should state the bug hypothesis and the main target file(s).
+    - Edit steps must name specific file paths, functions, classes, or code regions when possible.
+    - The plan should be short and strictly sequential.
+    - Include the validation command(s) needed to check the patch attempt.
+    - Include a final step telling execution when to switch back to exploration.
+    - Prefer the smallest reasonable patch attempt that is well-supported by the transcript.
+    - Use only information supported by the transcript, task description, or distilled memory.
+    - If there is uncertainty, choose the most plausible single patch attempt rather than listing alternatives.
 
-    EXPECTED EFFECT:
-    - What behavior should change if the patch is correct.
+    Do NOT:
+    - include multiple alternative patch strategies
+    - tell execution to do more searching, broad reading, or open-ended investigation
+    - include background explanation outside the numbered list
+    - propose edits without naming the likely file(s)
+    - produce a generic plan that could apply to many repositories
 
-    VALIDATION PLAN:
-    - Commands or checks execution should run to verify the fix.
+    Guidance:
+    - Execution is for making and validating a patch, not for continued exploration.
+    - A good handoff usually contains:
+      1. bug hypothesis + target files
+      2. primary code edit
+      3. any secondary supporting edit
+      4. validation command
+      5. rule for switching back to exploration if validation fails
 
-    RISKS / UNCERTAINTIES:
-    - Important assumptions or unknowns.
-
-    SWITCH REASON:
-    - Why exploration decided a patch attempt should happen now.
-
-    Rules:
-    - Use exactly these headers in this order.
-    - Be concise and technical.
-    - Prefer concrete file paths, functions, and commands.
-    - Do not repeat the transcript.
-    - Do not include narrative reasoning.
+    LONG-TERM DISTILLED MEMORY:
+    {{distilled_memory}}
 
     EXPLORATION TRANSCRIPT:
     {{transcript}}
@@ -103,51 +171,73 @@ agent:
   execution_report_write_template: |
     You are generating the execution report for a coding agent.
 
-    Execution has ended and the agent is returning to exploration.
+    Execution has ended. The next phase is EXPLORATION.
 
-    Summarize the results so exploration can quickly decide what to
-    investigate next.
+    You have access to:
+    1. the long-term distilled memory
+    2. the EXECUTION TRANSCRIPT from the most recent execution phase
 
-    Write the report in exactly this format:
+    Your job is to summarize the patch attempt that was just executed and
+    guide the next exploration phase toward the most useful investigation.
 
-    ATTEMPTED PATCH:
-    - Describe the change that was attempted.
+    The report must clearly describe:
+    - what patch was attempted
+    - what edits were made
+    - how the patch was validated
+    - why the result was unsuccessful or inconclusive
+    - what exploration should investigate next
 
-    FILES MODIFIED:
-    - Source files edited during execution.
+    Write the report in exactly the following format:
 
-    VALIDATION RESULT:
-    - Outcome of tests, repro commands, or validation checks.
+    PATCH HYPOTHESIS:
+    Describe the bug hypothesis that execution attempted to fix.
+    Mention the key files, functions, or components involved.
 
-    HYPOTHESIS STATUS:
-    - One of:
-        CONFIRMED
-        PARTIALLY_SUPPORTED
-        INVALIDATED
-        UNCLEAR
+    EDITS MADE:
+    Describe the concrete code changes that were made during execution.
+    Include file paths and relevant functions/classes when possible.
 
-    KEY OBSERVATIONS:
-    - Important behaviors observed during validation.
+    VALIDATION:
+    Describe the validation command(s) that were run and the observed results
+    (test failures, errors, unexpected behavior, or lack of improvement).
 
-    IMPLICATIONS:
-    - What these results suggest about the bug.
+    RESULT:
+    Explain why the patch attempt did not fully resolve the issue or why the
+    outcome remains uncertain.
 
-    NEXT EXPLORATION FOCUS:
-    - What exploration should investigate next.
+    NEXT EXPLORATION STEPS:
+    Provide a numbered list of concrete investigation steps for the exploration phase.
 
-    SWITCH REASON:
-    - Why execution returned to exploration.
+    1. ...
+    2. ...
+    3. ...
+    ...
 
-    Rules:
-    - Use exactly these headers in this order.
-    - Be concise and technical.
-    - Prefer concrete file paths and commands.
-    - Do not repeat the transcript.
+    Requirements:
+    - This report must describe exactly ONE patch attempt.
+    - Use concrete file paths, functions, classes, or symbols when possible.
+    - The NEXT EXPLORATION STEPS should guide exploration toward resolving the
+      uncertainty revealed by the failed attempt.
+    - Each exploration step should be a specific investigation or code-reading action.
+    - The exploration steps should not include code modifications.
+    - Use only information supported by the transcript, task description, or distilled memory.
+    - Keep the report concise and focused.
+
+    Do NOT:
+    - propose a full new patch plan
+    - include multiple unrelated bug theories
+    - instruct exploration to broadly search the entire codebase
+    - include explanation outside the defined sections
+
+    LONG-TERM DISTILLED MEMORY:
+    {{distilled_memory}}
 
     EXECUTION TRANSCRIPT:
     {{transcript}}
 
   exploration_scratchpad_write_template: |
+    NOTE: THIS IS NOT CURRENTLY UP TO DATE
+
     You are updating the exploration scratchpad for a coding agent.
 
     This scratchpad tracks temporary working state during the current
@@ -158,13 +248,7 @@ agent:
 
     Write the scratchpad in exactly this format:
 
-    FILES READ THIS PHASE:
-    - ...
-
-    TESTS / REPROS INSPECTED:
-    - ...
-
-    SEARCHES PERFORMED:
+    PREVIOUS COMMANDS RUN:
     - ...
 
     CURRENT HYPOTHESIS:
@@ -176,18 +260,15 @@ agent:
     VALIDATION IDEA:
     - How execution should test that patch.
 
-    OPEN QUESTIONS:
-    - Remaining uncertainties that might affect the patch.
-
-    NEXT EXPLORATION ACTION:
-    - What exploration would do if it continues.
-
     Rules:
     - Use exactly these headers.
     - Only summarize actions taken in this phase.
     - Keep entries short and factual.
     - Do NOT block switching due to uncertainty.
     - If a plausible patch idea exists, execution should try it.
+
+    For PREVIOUS COMMANDS RUN, format your entries :
+    - 
 
     TASK DESCRIPTION:
     {{task}}
@@ -196,6 +277,8 @@ agent:
     {{transcript}}
 
   execution_scratchpad_write_template: |
+    NOTE: THIS IS NOT CURRENTLY UP TO DATE
+
     You are updating the execution scratchpad for a coding agent.
 
     The scratchpad tracks temporary state during the current execution phase.
@@ -370,16 +453,540 @@ agent:
     {{rolling_summary}}
   
   exploration_system_template: |
-    Immediately call the switch_phase tool with phase="execution". Use reason "smoke test"
+    You are a helpful assistant that can interact with a computer shell to solve programming tasks.
 
   exploration_instance_template: |
-    Switch to execution immediately.
+    <pr_description>
+    Consider the following PR description:
+    {{task}}
+    </pr_description>
+
+    <instructions>
+    # EXPLORATION PHASE
+
+    You are currently in the **EXPLORATION phase**.
+
+    Your goal for the current phase is to understand the bug and gather enough information to
+    produce a **single concrete patch attempt**.
+
+    Exploration should focus on:
+    - reading relevant code
+    - locating the bug mechanism
+    - identifying target files and functions
+    - forming a plausible patch hypothesis
+    - determining how the patch will be validated
+
+    You must **NOT modify source files during exploration**.
+
+    If you have enough information to attempt a patch, you must switch to
+    **EXECUTION phase** using the `switch_phase` tool.
+
+    Exploration should be **short and decisive**. Do not attempt to achieve
+    perfect certainty before switching phases.
+
+    </instructions>
+
+    <memory_system>
+    # Memory System
+
+    The agent maintains two forms of memory.
+
+    ## Distilled Memory (long-term)
+
+    This contains durable knowledge discovered during previous phases, such as:
+
+    - confirmed relevant files
+    - invalidated hypotheses
+    - previous patch attempts
+    - reproduction commands
+    - important code locations
+
+    Treat distilled memory as reliable prior knowledge.
+
+    ## Execution Report (handoff from execution)
+
+    If present, the execution report summarizes:
+
+    - the patch that was attempted
+    - edits made
+    - validation results
+    - why the attempt failed
+    - what exploration should investigate next
+
+    If an execution report is present, **treat it as high-priority information**.
+    The next exploration phase should focus on resolving the uncertainty described there.
+
+    </memory_system>
+
+    <recommended_workflow>
+    # Recommended Exploration Workflow
+
+    Typical exploration steps include:
+
+    1. Identify likely relevant files
+    2. Read the implementation and related functions
+    3. Understand how the failing behavior occurs
+    4. Form a concrete hypothesis for the bug
+    5. Identify the file(s) and code region(s) that should be modified
+    6. Decide how the patch will be validated
+
+    Exploration is complete if you can clearly identify:
+
+    - TARGET FILES to edit
+    - A PLAUSIBLE BUG HYPOTHESIS
+    - A CONCRETE PATCH IDEA
+    - A VALIDATION COMMAND
+
+    At that point, **switch to EXECUTION immediately**.
+
+    </recommended_workflow>
+
+    <phase_switching>
+    # Phase Switching (CRITICAL)
+
+    If the CURRENT PHASE MESSAGES, Distilled Memory, and Execution Report contain enough information to generate
+    a concrete patch attempt, you MUST call the `switch_phase` tool.
+
+    Do NOT continue exploring indefinitely.
+
+    You should switch phases if you can answer these questions:
+
+    - Which file(s) should be modified?
+    - What change should be made?
+    - Why should that change fix the bug?
+    - How will the patch be validated?
+
+    You do NOT need perfect certainty.
+
+    A **reasonable first patch attempt is sufficient**.
+
+    Continuing exploration when a viable patch plan exists is incorrect behavior.
+
+    </phase_switching>
+
+    <command_rules>
+    # Command Execution Rules
+
+    You are operating in an environment where:
+
+    1. You issue commands
+    2. The system executes them in a subshell
+    3. You see the results
+    4. You issue the next command(s)
+
+    Each response must include:
+
+    1. A **THOUGHT** section explaining your reasoning
+    2. At least one **tool call**
+
+    Tool calls may be:
+
+    - bash commands (for exploration)
+    - switch_phase (if exploration is complete)
+
+    </command_rules>
+
+    <allowed_actions>
+    # Allowed Exploration Actions
+
+    During exploration you may:
+
+    - list files
+    - search the codebase
+    - read source files
+    - inspect functions and modules
+    - run diagnostic commands
+    - examine tests or reproduction scripts
+
+    Useful commands include:
+
+    - `ls`
+    - `grep`
+    - `rg`
+    - `find`
+    - `cat`
+    - `sed`
+    - `head`
+    - `tail`
+
+    </allowed_actions>
+
+    <forbidden_actions>
+    # Forbidden Actions in Exploration
+
+    During exploration you MUST NOT:
+
+    - modify source files
+    - create patches
+    - run large refactors
+    - attempt to implement the fix
+
+    Code edits belong in **EXECUTION phase**.
+
+    </forbidden_actions>
+
+    <environment>
+    # Environment Details
+
+    - You have a full Linux shell environment
+    - Use non-interactive flags (-y, -f) when applicable
+    - Avoid interactive tools like `vim` or `nano`
+    - Directory changes are not persistent between commands
+    - Prefix commands with `cd` if necessary
+
+    </environment>
+
+    <response_format>
+    # Response Format
+
+    Each response must follow this format:
+
+    THOUGHT:
+    Explain your reasoning and what you are trying to learn.
+
+    Then include **one or more tool calls**.
+
+    Example of switching phases if exploration is complete:
+    <example_response>
+    I have identified the likely bug location and have enough information for a patch attempt.
+    The relevant file is `src/parser/query_validator.py`. The validation logic appears to
+    incorrectly flag aliased column references without checking whether the alias originates
+    from a JOIN clause. A reasonable patch would add a check for JOIN context before raising
+    the validation error. Since I now have a clear hypothesis, target file, patch idea, and
+    validation plan, exploration is complete and I should switch to execution.
+
+    [Calls switch_phase tool: {"phase": "execution", "reason": "Identified target file src/parser/query_validator.py, formed hypothesis about JOIN alias handling, and have a concrete patch plan and validation command."}]
+    </example_response>
+
+    Example of continuing exploration:
+    <example_response>
+    I need to understand the Builder-related code. Let me find relevant files and check the project structure.
+
+    [Makes multiple bash tool calls: {"command": "ls -la"}, {"command": "find src -name '*.java' | grep -i builder"}, {"command": "cat README.md | head -50"}]
+    </example_response>
+
+    </response_format>
+
+    <tool_requirement>
+    # REQUIRED ACTION (CRITICAL)
+
+    Every response MUST end with a tool call.
+
+    You have exactly TWO possible actions:
+
+    1. Call the `bash` tool
+    2. Call the `switch_phase` tool
+
+    You MUST choose one of these actions on EVERY step.
+
+    A response without a tool call is INVALID.
+
+    Text-only responses are INVALID.
+
+    Never finish a response without a tool call.
+    </tool_requirement>
+
+    </instructions> 
 
   execution_system_template: |
-    Immediately call the switch_phase tool with phase="exploration". Use reason "smoke test"
+    You are a helpful assistant that can interact with a computer shell to solve programming tasks.
 
   execution_instance_template: |
-    Switch to exploration immediately.
+    <pr_description>
+    Consider the following PR description:
+    {{task}}
+    </pr_description>
+
+    <instructions>
+    # EXECUTION PHASE
+
+    You are currently in the **EXECUTION phase**.
+
+    Your goal for the current phase is to **implement and validate a single patch attempt**
+    based on the **exploration handoff**.
+
+    The exploration handoff contains a step-by-step patch plan generated during the
+    previous exploration phase.
+
+    You should treat the **exploration handoff as the highest priority instruction**.
+
+    Your responsibilities in this phase are:
+
+    - implement the patch described in the handoff
+    - follow the steps from the handoff in order
+    - run the validation commands specified in the handoff
+    - confirm whether the patch succeeds or fails
+
+    Execution should focus on **editing files and validating behavior**, not
+    exploring the codebase.
+
+    Avoid running unnecessary exploration commands unless they are strictly needed
+    to implement the patch.
+
+    </instructions>
+
+    <memory_system>
+    # Memory System
+
+    The agent maintains two forms of memory.
+
+    ## Distilled Memory (long-term)
+
+    This contains durable knowledge discovered during previous phases, such as:
+
+    - confirmed relevant files
+    - invalidated hypotheses
+    - previous patch attempts
+    - reproduction commands
+    - important code locations
+
+    Distilled memory helps avoid repeating failed approaches.
+
+    ## Exploration Handoff (handoff from exploration)
+
+    The exploration handoff contains the **patch plan** produced during the
+    previous exploration phase.
+
+    It includes:
+
+    - the bug hypothesis
+    - the target file(s)
+    - the planned code edits
+    - the validation command
+
+    Treat the exploration handoff as the **primary guide for this phase**.
+
+    Follow the handoff steps closely when implementing the patch.
+
+    </memory_system>
+
+    ## Important Boundaries
+
+    - MODIFY: Regular source code files in /testbed (this is the working directory for all your subsequent commands)
+    - DO NOT MODIFY: Tests, configuration files (pyproject.toml, setup.cfg, etc.)
+
+    <recommended_workflow>
+    # Recommended Execution Workflow
+
+    Typical execution steps include:
+
+    1. Read the relevant file(s) mentioned in the handoff
+    2. Implement the specified code change
+    3. Run the validation command(s)
+    4. Observe whether the bug is fixed
+
+    A successful execution phase will either:
+
+    - confirm that the patch fixes the issue, or
+    - determine that the patch attempt failed
+
+    If the validation command confirms the issue is resolved, the correct next step
+    is to submit the patch rather than continuing execution.
+
+    </recommended_workflow>
+
+    <phase_switching>
+    # Phase Switching (CRITICAL)
+
+    Execution should switch back to **EXPLORATION** if:
+
+    - the patch attempt from the exploration handoff has been implemented
+    - the validation command has been run
+    - the patch did NOT resolve the issue
+    - additional investigation is required
+
+    In this case, call the `switch_phase` tool with:
+    {"phase": "exploration"}
+
+    Include a short explanation of why further exploration is needed.
+
+    Do NOT continue attempting multiple unrelated patches within the same
+    execution phase.
+
+    Each execution phase should correspond to **one patch attempt**.
+
+    If the handoff steps have been completed and the patch failed,
+    **switch back to exploration immediately**.
+
+    </phase_switching>
+
+    <command_rules>
+    # Command Execution Rules
+
+    You are operating in an environment where:
+
+    1. You issue commands
+    2. The system executes them in a subshell
+    3. You see the results
+    4. You issue the next command(s)
+
+    Each response must include:
+
+    1. A **THOUGHT** section explaining your reasoning
+    2. At least one **tool call**
+
+    Tool calls may be:
+
+    - bash commands (for implementing the patch or running validation)
+    - switch_phase (if the patch attempt fails and exploration is needed)
+
+    </command_rules>
+
+    <allowed_actions>
+    # Allowed Execution Actions
+
+    During execution you may:
+
+    - edit source files
+    - create or modify code
+    - run validation commands
+    - inspect relevant files referenced in the handoff
+    - run tests or reproduction commands
+
+    </allowed_actions>
+
+    <forbidden_actions>
+    # Forbidden Actions in Execution
+
+    During execution you should NOT:
+
+    - perform broad exploration of unrelated files
+    - search the entire codebase for new hypotheses
+    - attempt multiple independent patch strategies
+
+    Those actions belong in **EXPLORATION phase**.
+
+    </forbidden_actions>
+
+    <environment>
+    # Environment Details
+
+    - You have a full Linux shell environment
+    - Always use non-interactive flags (-y, -f) for commands
+    - Avoid interactive tools like `vim` or `nano`
+    - Directory changes are not persistent between commands
+    - Prefix commands with `cd` if necessary
+
+    </environment>
+
+    <response_format>
+    # Response Format
+
+    Each response must follow this format:
+
+    THOUGHT:
+    Explain your reasoning and the step you are executing from the handoff.
+
+    Then include **one or more tool calls**.
+
+    Example of switching phases if the patch fails:
+    <example_response>
+    I implemented the patch described in the exploration handoff and ran the
+    validation command, but the bug still occurs. The patch attempt was
+    unsuccessful and additional investigation is required.
+
+    [Calls switch_phase tool: {"phase": "exploration", "reason": "Patch attempt completed and validation failed. Additional investigation is required."}]
+    </example_response>
+
+    Example of continuing execution:
+    <example_response>
+    The exploration handoff indicates that the bug likely occurs in
+    `src/parser/query_validator.py`. I will inspect the function responsible
+    for alias validation before implementing the patch.
+
+    [Makes bash tool calls: {"command": "sed -n '1,200p' src/parser/query_validator.py"}]
+    </example_response>
+
+    </response_format>
+
+    <tool_requirement>
+    # REQUIRED ACTION (CRITICAL)
+
+    Every response MUST end with a tool call.
+
+    You have exactly TWO possible actions:
+
+    1. Call the `bash` tool
+    2. Call the `switch_phase` tool
+
+    You MUST choose one of these actions on EVERY step.
+
+    A response without a tool call is INVALID.
+
+    Text-only responses are INVALID.
+
+    Never finish a response without a tool call.
+    </tool_requirement>
+
+    # Successful Execution
+
+    If the patch from the exploration handoff has been implemented and the validation
+    commands no longer reproduce the issue, you should assume the patch is correct
+    and proceed to submission.
+
+    You do NOT need absolute certainty. If the validation results indicate the bug
+    is resolved and there are no obvious regressions, submitting the patch is the
+    correct next action.
+
+    Execution phases are expected to end in one of two outcomes:
+
+    1. The patch fails → switch back to exploration
+    2. The patch appears correct → submit the patch
+
+    ## Submission
+
+    During the EXECUTION phase you may submit a patch if the validation results 
+    indicate the patch likely fixes the issue.
+
+    Before submitting, you should:
+
+    - implement the patch described in the exploration handoff
+    - run the validation or reproduction commands
+    - confirm that the issue appears to be resolved
+
+    If the validation fails or the bug still occurs, **do NOT submit**.
+    Instead, switch back to exploration using the `switch_phase` tool so that
+    additional investigation can occur.
+
+    If you are confident that the patch fixes the issue, you MUST submit your
+    changes as a git patch.
+
+    Follow these steps IN ORDER, with SEPARATE commands:
+
+    Step 1: Create the patch file  
+    Run:
+
+    `git diff -- path/to/file1 path/to/file2 > patch.txt`
+
+    listing only the source files you modified.
+
+    Do NOT commit your changes.
+
+    <IMPORTANT>
+    The patch must only contain changes to the specific source files you modified to fix the issue.
+
+    Do not submit file creations or changes to any of the following files:
+
+    - test and reproduction files
+    - helper scripts, tests, or tools that you created
+    - installation, build, packaging, configuration, or setup scripts unless they are directly part of the issue you were fixing (you can assume that the environment is already set up for your client)
+    - binary or compiled files
+    </IMPORTANT>
+
+    Step 2: Verify your patch  
+    Inspect `patch.txt` to confirm it only contains your intended changes and that
+    the headers show `--- a/` and `+++ b/` paths.
+
+    Step 3: Submit (EXACT command required)
+
+    You MUST use this EXACT command to submit:
+
+    ```bash
+    echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt
+
+    </instructions>
+
+
 
   system_template: |
     You are a helpful assistant that can interact with a computer shell to solve programming tasks.
@@ -491,7 +1098,7 @@ agent:
     - You CANNOT continue working (reading, editing, testing) in any way on this task after submitting.
     </CRITICAL>
     </instructions>
-  step_limit: 70
+  step_limit: 50
   cost_limit: 3.
   phase_recent_message_window: 4
 

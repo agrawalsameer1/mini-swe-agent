@@ -1,0 +1,41 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+```"=== DISTILLED TASK MEMORY ==="
+
+ISSUE CORE:
+- `astroid` (and consequently `pylint`) fails when attempting to parse a directory that is a namespace package (missing `__init__.py`) but is located inside a parent directory that *is* a package (contains `__init__.py`).
+- The failure manifests as an `AstroidBuildingError` (F0010 in pylint) because `astroid` incorrectly attempts to load a non-existent `__init__.py` file for the subdirectory.
+
+OBSERVED BEHAVIOR:
+- Error message: `astroid.exceptions.AstroidBuildingError: Unable to load file src/project/__init__.py: [Errno 2] No such file or directory: 'src/project/__init__.py'`
+- Occurs when running `pylint src/project` where `src/__init__.py` exists but `src/project/__init__.py` does not.
+- `AstroidBuilder.file_build` fails when pointed at a directory without an `__init__.py` if it's treated as a package.
+
+CONFIRMED RELEVANT FILES:
+- `astroid/modutils.py`: Handles module path resolution and file-to-module mapping.
+- `astroid/builder.py`: Contains `AstroidBuilder.file_build` and `open_source_file`.
+- `astroid/interpreter/_import/spec.py`: Involved in finding module specifications.
+
+CONFIRMED IRRELEVANT PATHS:
+- None yet.
+
+ACTIVE HYPOTHESES:
+- `astroid.modutils.get_module_part` or `file_info_from_modpath` is incorrectly identifying the directory as a regular package requiring an `__init__.py` instead of a namespace package.
+- Pylint's module expansion logic (which uses `astroid`) is passing a constructed `__init__.py` path to `AstroidBuilder.file_build` based on a false assumption that the directory must be a standard package.
+
+INVALIDATED HYPOTHESES:
+- None yet.
+
+ATTEMPT LEDGER:
+- Attempt 1: Created reproduction directory structure `root_dir/src/project/file.py` with `src/__init__.py`. Confirmed `AstroidBuilder.file_build` fails with `IsADirectoryError` when given the directory path, and `FileNotFoundError` when explicitly given the non-existent `__init__.py`.
+
+KNOWN REPRO / VALIDATION COMMANDS:
+- `mkdir -p root_dir/src/project && touch root_dir/src/__init__.py && echo "import os" > root_dir/src/project/file.py`
+- Reproduction script `reproduce_issue.py` using `astroid.builder.AstroidBuilder().file_build("root_dir/src/project/__init__.py")`.
+
+KEY CODE LOCATIONS:
+- `astroid/modutils.py:get_module_part`
+- `astroid/modutils.py:file_info_from_modpath`
+- `astroid/builder.py:file_build`
+- `astroid/builder.py:open_source_file`

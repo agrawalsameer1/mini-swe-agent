@@ -1,0 +1,11 @@
+=== CURRENT OBJECTIVE ===
+Execute the patch plan identified during exploration and validate the fix.
+
+1. The bug hypothesis is that `astroid` triggers `FutureWarning` when it calls `getattr()` on deprecated module members (like `numpy.long`) during the inspection process in `astroid/raw_building.py`.
+2. The primary target is the `imported_member` method of the `InspectBuilder` class in `astroid/raw_building.py`.
+3. In `astroid/raw_building.py`, import the `warnings` module at the top of the file.
+4. In `astroid/raw_building.py`, locate the `imported_member` method (around line 474) and wrap the `getattr(sys.modules[modname], name)` call in a `with warnings.catch_warnings():` block.
+5. Inside the context manager, use `warnings.simplefilter("ignore", FutureWarning)` to suppress the warning during the attribute access.
+6. Validate the fix by running the reproduction script: `python3 reproduce_warning.py`. Although the current environment's NumPy version might not trigger it, the logic ensures that any such future warnings from any module are suppressed during this specific check.
+7. Run existing tests to ensure no regressions: `pytest tests/unittest_raw_building.py`.
+8. Switch back to exploration if the patch causes unexpected side effects or fails to address the reported issue in a verifiable way.

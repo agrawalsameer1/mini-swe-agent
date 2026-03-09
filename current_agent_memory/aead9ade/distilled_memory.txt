@@ -1,0 +1,38 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+ISSUE CORE:
+- The SQLFluff parser fails with a `RuntimeError: Dropped elements in sequence matching!` when encountering double semicolons (e.g., `SELECT 1;;`).
+- This occurs because the grammar's `match` result does not account for all input segments, causing a validation check in `check_still_complete` to fail.
+
+OBSERVED BEHAVIOR:
+- Command: `echo "select id from tbl;;" | python3 -m sqlfluff lint -`
+- Error: `RuntimeError: Dropped elements in sequence matching! 'select id from tbl;;' != ';'`
+- The traceback indicates the failure happens during the `parse` phase of a segment (likely `FileSegment` or `StatementSegment`).
+
+CONFIRMED RELEVANT FILES:
+- `src/sqlfluff/core/parser/helpers.py`: Contains `check_still_complete` which raises the error.
+- `src/sqlfluff/core/parser/segments/base.py`: Calls `check_still_complete` after a grammar match.
+- `src/sqlfluff/dialects/dialect_ansi.py`: Defines the top-level `FileSegment` and `StatementSegment` structure.
+
+CONFIRMED IRRELEVANT PATHS:
+- None yet.
+
+ACTIVE HYPOTHESES:
+- The `FileSegment` or `StatementSegment` grammar in the ANSI dialect (and potentially others) does not correctly handle empty statements or consecutive delimiters, leading to segments being "lost" during the matching process.
+- A `Sequence` or `Delimited` grammar is returning a `MatchResult` that excludes the second semicolon without marking it as `unmatched_segments`.
+
+INVALIDATED HYPOTHESES:
+- None yet.
+
+ATTEMPT LEDGER:
+- None yet.
+
+KNOWN REPRO / VALIDATION COMMANDS:
+- `export PYTHONPATH=$PYTHONPATH:$(pwd)/src && echo "select id from tbl;;" | python3 -m sqlfluff lint -`
+- Note: Requires dependencies: `pytest`, `click`, `jinja2`, `pyyaml`, `pathspec`, `chardet`, `colorama`, `diff-match-patch`, `tblib`, `appdirs`, `toml`, `typing_extensions`.
+
+KEY CODE LOCATIONS:
+- `src/sqlfluff/core/parser/helpers.py:check_still_complete`
+- `src/sqlfluff/core/parser/segments/base.py:BaseSegment.parse`
+- `src/sqlfluff/dialects/dialect_ansi.py:FileSegment` (Line 489)

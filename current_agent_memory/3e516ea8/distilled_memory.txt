@@ -1,0 +1,32 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+ISSUE CORE:
+- The `pvlib.irradiance.reindl` function produces `NaN` or `Inf` when Global Horizontal Irradiance (`ghi`) is zero.
+- This is caused by a division by zero in the calculation of `term3`, specifically `np.sqrt(HB / ghi)`.
+
+OBSERVED BEHAVIOR:
+- Running `reindl` with `ghi=0` results in a `RuntimeWarning: invalid value encountered in scalar divide` and returns `nan`.
+- Physically, if `ghi` is zero, the diffuse sky irradiance should also be zero (or at least not `NaN`).
+
+CONFIRMED RELEVANT FILES:
+- `pvlib/irradiance.py`
+
+CONFIRMED IRRELEVANT PATHS:
+- `pvlib/irradiance.py:king` (uses `ghi` as a multiplier, not a divisor).
+
+ACTIVE HYPOTHESES:
+- Replacing the direct division `HB / ghi` with a safe division (e.g., using `np.where(ghi > 0, HB / ghi, 0)`) will prevent `NaN` results and correctly return 0 when `ghi` is 0.
+
+INVALIDATED HYPOTHESES:
+- None.
+
+ATTEMPT LEDGER:
+- None yet (reproduction successful, patch pending).
+
+KNOWN REPRO / VALIDATION COMMANDS:
+- `python3 reproduce_bug.py` (Script created during exploration that calls `irradiance.reindl` with `ghi=0`).
+- Note: Environment requires `numpy < 2.0` due to `np.Inf` usage in the current codebase version.
+
+KEY CODE LOCATIONS:
+- `pvlib/irradiance.py`: Line 889: `term3 = 1 + np.sqrt(HB / ghi) * (tools.sind(0.5 * surface_tilt) ** 3)`

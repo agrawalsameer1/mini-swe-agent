@@ -1,0 +1,42 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+```json
+{
+  "ISSUE CORE": [
+    "Rule L036 (Select targets should be on a new line) introduces an extra space of indentation for the first select target when fixing a multi-line select clause inside a WITH statement.",
+    "The bug likely stems from L036 failing to delete the original whitespace between the SELECT keyword and the first select target, which then gets combined with the indentation added by Rule L003."
+  ],
+  "OBSERVED BEHAVIOR": [
+    "Running `sqlfluff fix` on a WITH clause where SELECT targets are on the same line as SELECT results in the first target having 9 spaces of indentation, while subsequent targets have 8 (assuming 4-space indents).",
+    "Warning: 'One fix for L003 not applied, it would re-cause the same error.' is emitted during fix.",
+    "Parse tree shows a `[META] indent` segment between the `SELECT` keyword and the `whitespace` segment in the `select_clause`."
+  ],
+  "CONFIRMED RELEVANT FILES": [
+    "src/sqlfluff/rules/L036.py",
+    "src/sqlfluff/rules/L003.py"
+  ],
+  "CONFIRMED IRRELEVANT PATHS": [],
+  "ACTIVE HYPOTHESES": [
+    "L036's `_eval_multiple_select_target_elements` uses `select_children` to find whitespace to delete. The presence of `[META] indent` between `SELECT` and the whitespace might be causing `select_children` to miss the whitespace if the `loop_while` or `start_seg` logic is slightly off.",
+    "The `NewlineSegment` is inserted by L036, but the existing whitespace is not deleted, leading L003 to treat the line as having 'indentation + 1 space' which it then fails to reconcile perfectly due to the meta-segment placement."
+  ],
+  "INVALIDATED HYPOTHESES": [],
+  "ATTEMPT LEDGER": [
+    {
+      "files_modified": "reproduce_issue.sql",
+      "validation_commands": "sqlfluff fix reproduce_issue.sql --force",
+      "outcome": "Reproduced the extra space (9 spaces vs 8) and the L003 warning."
+    }
+  ],
+  "KNOWN REPRO / VALIDATION COMMANDS": [
+    "sqlfluff fix reproduce_issue.sql --force",
+    "sqlfluff parse reproduce_issue.sql"
+  ],
+  "KEY CODE LOCATIONS": [
+    "src/sqlfluff/rules/L036.py: Rule_L036._eval_multiple_select_target_elements",
+    "src/sqlfluff/rules/L036.py: Rule_L036._get_indexes",
+    "src/sqlfluff/core/parser/segments/base.py: BaseSegment.select_children"
+  ]
+}
+```

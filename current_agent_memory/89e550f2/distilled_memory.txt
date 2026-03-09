@@ -1,0 +1,43 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+ISSUE CORE:
+- `pydicom` configures its logger (`pydicom`) with a `StreamHandler`, a custom `Formatter`, and sets the log level to `WARNING` automatically upon import in `pydicom/config.py`.
+- This violates library best practices, as it interferes with the logging configuration of the host application.
+
+OBSERVED BEHAVIOR:
+- Importing `pydicom` adds a `StreamHandler` to the `pydicom` logger.
+- The log level is forced to `WARNING` via an internal call to `debug(False)` at the end of `pydicom/config.py`.
+- A reproduction script confirmed that even with a root logger configured, `pydicom` messages are handled by its own internal `StreamHandler` and level settings.
+
+CONFIRMED RELEVANT FILES:
+- `pydicom/config.py`: Contains the logger initialization, handler setup, and the `debug()` function call that forces the log level.
+
+CONFIRMED IRRELEVANT PATHS:
+- None so far.
+
+ACTIVE HYPOTHESES:
+- Removing the `StreamHandler` and `Formatter` setup, replacing it with a `NullHandler`, and removing the automatic `debug(False)` call will resolve the issue while maintaining the `debug()` utility for users who want to opt-in.
+
+INVALIDATED HYPOTHESES:
+- None so far.
+
+ATTEMPT LEDGER:
+- None so far.
+
+KNOWN REPRO / VALIDATION COMMANDS:
+- Create and run `reproduce_issue.py`:
+```python
+import logging
+import sys
+import pydicom
+logger = logging.getLogger('pydicom')
+print(f"pydicom logger level: {logging.getLevelName(logger.level)}")
+print(f"pydicom logger handlers: {logger.handlers}")
+```
+
+KEY CODE LOCATIONS:
+- `pydicom/config.py:64-68`: Logger, handler, and formatter initialization.
+- `pydicom/config.py:121-137`: `debug()` function definition.
+- `pydicom/config.py:141`: The `debug(False)` call that triggers the side effect on import.
+- `pydicom/filereader.py`: Uses `config.debugging` to gate debug log statements.

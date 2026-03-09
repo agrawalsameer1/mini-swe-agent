@@ -1,29 +1,9 @@
 === CURRENT OBJECTIVE ===
-Continue exploration based on the previous execution report.
+Execute the patch plan identified during exploration and validate the fix.
 
-ATTEMPTED PATCH:
-- No patch was attempted. The agent transitioned directly from initialization to exploration.
-
-FILES MODIFIED:
-- None.
-
-VALIDATION RESULT:
-- No validation performed.
-
-HYPOTHESIS STATUS:
-- UNCLEAR
-
-KEY OBSERVATIONS:
-- The agent initiated a phase switch immediately upon starting.
-- No diagnostic or reproduction steps were executed in the current session.
-
-IMPLICATIONS:
-- The codebase state and the nature of the bug remain unverified.
-
-NEXT EXPLORATION FOCUS:
-- Locate the relevant source files and reproduction scripts.
-- Execute existing tests to establish a baseline.
-- Identify the specific failure point described in the issue.
-
-SWITCH REASON:
-- Smoke test; the agent is moving to the exploration phase to gather context and define the problem space.
+1. The bug hypothesis is that Rule L031 incorrectly triggers on single-table queries because it lacks a check for the presence of multiple tables or explicit JOIN clauses, leading to misleading "Avoid using aliases in join condition" errors. The target file is `src/sqlfluff/rules/L031.py`.
+2. Modify `src/sqlfluff/rules/L031.py` in the `_eval` method to count the number of `from_expression_element` segments found in the `from_clause`.
+3. Add a conditional check before calling `self._lint_aliases_in_join` to return `None` if `len(from_expression_elements) <= 1`, ensuring the rule only applies when a join is actually present.
+4. Validate the fix by running `PYTHONPATH=src python3 -m sqlfluff lint reproduce_issue.sql --dialect tsql --rules L031` and ensuring it now passes (returns 0).
+5. Verify that existing join-based tests still trigger the rule by running `pytest test/fixtures/rules/std_rule_cases/L031.yml`.
+6. If validation fails or if existing single-table tests (like `alias_single_char_identifiers`) are intentionally broken by this change, switch back to exploration to refine the rule's scope.

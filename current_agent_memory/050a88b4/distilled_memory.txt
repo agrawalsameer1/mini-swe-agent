@@ -1,0 +1,35 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+=== DISTILLED TASK MEMORY ===
+
+ISSUE CORE:
+- `astroid` triggers `FutureWarning` when inspecting modules with deprecated attributes (specifically `numpy`).
+- The warning occurs during `InspectBuilder.imported_member` when calling `getattr` on a module to verify if a member is imported or locally defined.
+- In `numpy` 1.20+, accessing attributes like `np.long` triggers this warning.
+
+OBSERVED BEHAVIOR:
+- `FutureWarning: In the future np.long will be defined as the corresponding NumPy scalar...` emitted during astroid's raw building process.
+- The warning originates from `astroid/raw_building.py` at the `getattr(sys.modules[modname], name)` call.
+
+CONFIRMED RELEVANT FILES:
+- `astroid/raw_building.py`: Contains the `InspectBuilder.imported_member` method where the problematic `getattr` call resides.
+
+CONFIRMED IRRELEVANT PATHS:
+- None so far.
+
+ACTIVE HYPOTHESES:
+- Wrapping the `getattr` call in `astroid/raw_building.py` with a `warnings.catch_warnings()` context manager to ignore `FutureWarning` will suppress the noise without affecting functionality.
+
+INVALIDATED HYPOTHESES:
+- None.
+
+ATTEMPT LEDGER:
+- (No patches attempted yet in this phase).
+
+KNOWN REPRO / VALIDATION COMMANDS:
+- `python3 -c "import numpy as np; import warnings; warnings.simplefilter('always', FutureWarning); getattr(np, 'long')"` (Note: behavior depends on the installed `numpy` version; `numpy==2.4.2` was used in exploration but did not consistently emit the warning in the test environment).
+- `python3 reproduce_issue.py` (Custom script attempting to build an astroid model of code importing `numpy`).
+
+KEY CODE LOCATIONS:
+- `astroid/raw_building.py`: `InspectBuilder.imported_member` (approx. line 474).

@@ -1,0 +1,19 @@
+=== CURRENT OBJECTIVE ===
+Execute the patch plan identified during exploration and validate the fix.
+
+1. The bug hypothesis is that `_golden_sect_DataFrame` in `pvlib/tools.py` fails when `upper` and `lower` bounds are equal because the `iterlimit` calculation involves a division by zero (leading to `log(inf)` and then `-inf` after dividing by the negative `log(phim1)`), which prevents the optimization loop from running and results in an "Iterations exceeded maximum" exception.
+2. The target file is `pvlib/tools.py`.
+3. In `pvlib/tools.py`, modify the `iterlimit` calculation in `_golden_sect_DataFrame` (around line 340) to handle cases where `df['VH'] - df['VL']` is zero. This can be done by replacing zeros with `np.nan` before the division or by using `np.maximum(0, ...)` and ensuring `nanmax` handles the resulting values gracefully.
+4. Specifically, update the `iterlimit` calculation to:
+   ```python
+   diff = df['VH'] - df['VL']
+   with warnings.catch_warnings():
+       warnings.filterwarnings(action='ignore', message='divide by zero encountered in divide')
+       warnings.filterwarnings(action='ignore', message='All-NaN slice encountered')
+       # Use np.where to avoid log(0) or handle the resulting -inf/nan
+       iterlimit = 1 + np.nanmax(np.trunc(np.log(atol / diff.replace(0, np.nan)) / np.log(phim1)))
+   if np.isnan(iterlimit) or np.isinf(iterlimit):
+       iterlimit = 0
+   ```
+5. Validation command: Run the reproduction script `python3 reproduce_bug.py` and ensure it prints a result instead of catching an exception. Also run existing tests: `pytest pvlib/tests/test_tools.py`.
+6. If validation fails or the fix introduces regressions in existing tests, switch back to exploration.

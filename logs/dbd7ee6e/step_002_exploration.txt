@@ -1,0 +1,1400 @@
+STEP: 2
+PHASE: exploration
+================================================================================
+FINAL BUILT PROMPT
+================================================================================
+
+[MESSAGE 1]
+role: system
+content:
+You are a helpful assistant that can interact with a computer shell to solve programming tasks.
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 2]
+role: user
+content:
+<pr_description>
+Consider the following PR description:
+dbt postgres fix command errors with UnicodeEncodeError and also wipes the .sql file
+_If this is a parsing or linting issue, please include a minimal SQL example which reproduces the issue, along with the `sqlfluff parse` output, `sqlfluff lint` output and `sqlfluff fix` output when relevant._
+
+## Expected Behaviour
+Violation failure notice at a minimum, without wiping the file. Would like a way to ignore the known error at a minimum as --noqa is not getting past this. Actually would expect --noqa to totally ignore this.
+
+## Observed Behaviour
+Reported error: `UnicodeEncodeError: 'charmap' codec can't encode character '\u2192' in position 120: character maps to <undefined>`
+
+## Steps to Reproduce
+SQL file:
+```sql
+SELECT
+    reacted_table_name_right.descendant_id AS category_id,
+    string_agg(redacted_table_name_left.name, ' → ' ORDER BY reacted_table_name_right.generations DESC) AS breadcrumbs -- noqa
+FROM {{ ref2('redacted_schema_name', 'redacted_table_name_left') }} AS redacted_table_name_left
+INNER JOIN {{ ref2('redacted_schema_name', 'reacted_table_name_right') }} AS reacted_table_name_right
+    ON redacted_table_name_left.id = order_issue_category_hierarchies.ancestor_id
+GROUP BY reacted_table_name_right.descendant_id
+```
+Running `sqlfluff fix --ignore templating,parsing,lexing -vvvv` and accepting proposed fixes for linting violations.
+
+## Dialect
+`postgres`, with `dbt` templater
+
+## Version
+`python 3.7.12`
+`sqlfluff 0.7.0`
+`sqlfluff-templater-dbt 0.7.0`
+
+## Configuration
+I've tried a few, here's one:
+```
+[sqlfluff]
+verbose = 2
+dialect = postgres
+templater = dbt
+exclude_rules = None
+output_line_length = 80
+runaway_limit = 10
+ignore_templated_areas = True
+processes = 3
+# Comma separated list of file extensions to lint.
+
+# NB: This config will only apply in the root folder.
+sql_file_exts = .sql
+
+[sqlfluff:indentation]
+indented_joins = False
+indented_using_on = True
+template_blocks_indent = True
+
+[sqlfluff:templater]
+unwrap_wrapped_queries = True
+
+[sqlfluff:templater:jinja]
+apply_dbt_builtins = True
+
+[sqlfluff:templater:jinja:macros]
+# Macros provided as builtins for dbt projects
+dbt_ref = {% macro ref(model_ref) %}{{model_ref}}{% endmacro %}
+dbt_source = {% macro source(source_name, table) %}{{source_name}}_{{table}}{% endmacro %}
+dbt_config = {% macro config() %}{% for k in kwargs %}{% endfor %}{% endmacro %}
+dbt_var = {% macro var(variable, default='') %}item{% endmacro %}
+dbt_is_incremental = {% macro is_incremental() %}True{% endmacro %}
+
+# Common config across rules
+[sqlfluff:rules]
+tab_space_size = 4
+indent_unit = space
+single_table_references = consistent
+unquoted_identifiers_policy = all
+
+# L001 - Remove trailing whitespace (fix)
+# L002 - Single section of whitespace should not contain both tabs and spaces (fix)
+# L003 - Keep consistent indentation (fix)
+# L004 - We use 4 spaces for indentation just for completeness (fix)
+# L005 - Remove space before commas (fix)
+# L006 - Operators (+, -, *, /) will be wrapped by a single space each side (fix)
+
+# L007 - Operators should not be at the end of a line
+[sqlfluff:rules:L007]  # Keywords
+operator_new_lines = after
+
+# L008 - Always use a single whitespace after a comma (fix)
+# L009 - Files will always end with a trailing newline
+
+# L010 - All keywords will use full upper case (fix)
+[sqlfluff:rules:L010]  # Keywords
+capitalisation_policy = upper
+
+# L011 - Always explicitly alias tables (fix)
+[sqlfluff:rules:L011]  # Aliasing
+aliasing = explicit
+
+# L012 - Do not have to explicitly alias all columns
+[sqlfluff:rules:L012]  # Aliasing
+aliasing = explicit
+
+# L013 - Always explicitly alias a column with an expression in it (fix)
+[sqlfluff:rules:L013]  # Aliasing
+allow_scalar = False
+
+# L014 - Always user full lower case for 'quoted identifiers' -> column refs. without an alias (fix)
+[sqlfluff:rules:L014]  # Unquoted identifiers
+extended_capitalisation_policy = lower
+
+# L015 - Always remove parenthesis when using DISTINCT to be clear that DISTINCT applies to all columns (fix)
+
+# L016 - Lines should be 120 characters of less. Comment lines should not be ignored (fix)
+[sqlfluff:rules:L016]
+ignore_comment_lines = False
+max_line_length = 120
+
+# L017 - There should not be whitespace between function name and brackets (fix)
+# L018 - Always align closing bracket of WITH to the WITH keyword (fix)
+
+# L019 - Always use trailing commas / commas at the end of the line (fix)
+[sqlfluff:rules:L019]
+comma_style = trailing
+
+# L020 - Table aliases will always be unique per statement
+# L021 - Remove any use of ambiguous DISTINCT and GROUP BY combinations. Lean on removing the GROUP BY.
+# L022 - Add blank lines after common table expressions (CTE) / WITH.
+# L023 - Always add a single whitespace after AS in a WITH clause (fix)
+
+[sqlfluff:rules:L026]
+force_enable = False
+
+# L027 - Always add references if more than one referenced table or view is used
+
+[sqlfluff:rules:L028]
+force_enable = False
+
+[sqlfluff:rules:L029]  # Keyword identifiers
+unquoted_identifiers_policy = aliases
+
+[sqlfluff:rules:L030]  # Function names
+capitalisation_policy = upper
+
+# L032 - We prefer use of join keys rather than USING
+# L034 - We prefer ordering of columns in select statements as (fix):
+# 1. wildcards
+# 2. single identifiers
+# 3. calculations and aggregates
+
+# L035 - Omit 'else NULL'; it is redundant (fix)
+# L036 - Move select targets / identifiers onto new lines each (fix)
+# L037 - When using ORDER BY, make the direction explicit (fix)
+
+# L038 - Never use trailing commas at the end of the SELECT clause
+[sqlfluff:rules:L038]
+select_clause_trailing_comma = forbid
+
+# L039 - Remove unnecessary whitespace (fix)
+
+[sqlfluff:rules:L040]  # Null & Boolean Literals
+capitalisation_policy = upper
+
+# L042 - Join clauses should not contain subqueries. Use common tables expressions (CTE) instead.
+[sqlfluff:rules:L042]
+# By default, allow subqueries in from clauses, but not join clauses.
+forbid_subquery_in = join
+
+# L043 - Reduce CASE WHEN conditions to COALESCE (fix)
+# L044 - Prefer a known number of columns along the path to the source data
+# L045 - Remove unused common tables expressions (CTE) / WITH statements (fix)
+# L046 - Jinja tags should have a single whitespace on both sides
+
+# L047 - Use COUNT(*) instead of COUNT(0) or COUNT(1) alternatives (fix)
+[sqlfluff:rules:L047]  # Consistent syntax to count all rows
+prefer_count_1 = False
+prefer_count_0 = False
+
+# L048 - Quoted literals should be surrounded by a single whitespace (fix)
+# L049 - Always use IS or IS NOT for comparisons with NULL (fix)
+```
+
+
+</pr_description>
+
+<instructions>
+# EXPLORATION PHASE
+
+You are currently in the **EXPLORATION phase**.
+
+Your goal for the current phase is to understand the bug and gather enough information to
+produce a **single concrete patch attempt**.
+
+Exploration should focus on:
+- reading relevant code
+- locating the bug mechanism
+- identifying target files and functions
+- forming a plausible patch hypothesis
+- determining how the patch will be validated
+
+You must **NOT modify source files during exploration**.
+
+If you have enough information to attempt a patch, you must switch to
+**EXECUTION phase** using the `switch_phase` tool.
+
+Exploration should be **short and decisive**. Do not attempt to achieve
+perfect certainty before switching phases.
+
+</instructions>
+
+<memory_system>
+# Memory System
+
+The agent maintains two forms of memory.
+
+## Distilled Memory (long-term)
+
+This contains durable knowledge discovered during previous phases, such as:
+
+- confirmed relevant files
+- invalidated hypotheses
+- previous patch attempts
+- reproduction commands
+- important code locations
+
+Treat distilled memory as reliable prior knowledge.
+
+## Execution Report (handoff from execution)
+
+If present, the execution report summarizes:
+
+- the patch that was attempted
+- edits made
+- validation results
+- why the attempt failed
+- what exploration should investigate next
+
+If an execution report is present, **treat it as high-priority information**.
+The next exploration phase should focus on resolving the uncertainty described there.
+
+</memory_system>
+
+<recommended_workflow>
+# Recommended Exploration Workflow
+
+Typical exploration steps include:
+
+1. Identify likely relevant files
+2. Read the implementation and related functions
+3. Understand how the failing behavior occurs
+4. Form a concrete hypothesis for the bug
+5. Identify the file(s) and code region(s) that should be modified
+6. Decide how the patch will be validated
+
+Exploration is complete if you can clearly identify:
+
+- TARGET FILES to edit
+- A PLAUSIBLE BUG HYPOTHESIS
+- A CONCRETE PATCH IDEA
+- A VALIDATION COMMAND
+
+At that point, **switch to EXECUTION immediately**.
+
+</recommended_workflow>
+
+<phase_switching>
+# Phase Switching (CRITICAL)
+
+If the CURRENT PHASE MESSAGES, Distilled Memory, and Execution Report contain enough information to generate
+a concrete patch attempt, you MUST call the `switch_phase` tool.
+
+Do NOT continue exploring indefinitely.
+
+You should switch phases if you can answer these questions:
+
+- Which file(s) should be modified?
+- What change should be made?
+- Why should that change fix the bug?
+- How will the patch be validated?
+
+You do NOT need perfect certainty.
+
+A **reasonable first patch attempt is sufficient**.
+
+Continuing exploration when a viable patch plan exists is incorrect behavior.
+
+</phase_switching>
+
+<command_rules>
+# Command Execution Rules
+
+You are operating in an environment where:
+
+1. You issue commands
+2. The system executes them in a subshell
+3. You see the results
+4. You issue the next command(s)
+
+Each response must include:
+
+1. A **THOUGHT** section explaining your reasoning
+2. At least one **tool call**
+
+Tool calls may be:
+
+- bash commands (for exploration)
+- switch_phase (if exploration is complete)
+
+</command_rules>
+
+<allowed_actions>
+# Allowed Exploration Actions
+
+During exploration you may:
+
+- list files
+- search the codebase
+- read source files
+- inspect functions and modules
+- run diagnostic commands
+- examine tests or reproduction scripts
+
+Useful commands include:
+
+- `ls`
+- `grep`
+- `rg`
+- `find`
+- `cat`
+- `sed`
+- `head`
+- `tail`
+
+</allowed_actions>
+
+<forbidden_actions>
+# Forbidden Actions in Exploration
+
+During exploration you MUST NOT:
+
+- modify source files
+- create patches
+- run large refactors
+- attempt to implement the fix
+
+Code edits belong in **EXECUTION phase**.
+
+</forbidden_actions>
+
+<environment>
+# Environment Details
+
+- You have a full Linux shell environment
+- Use non-interactive flags (-y, -f) when applicable
+- Avoid interactive tools like `vim` or `nano`
+- Directory changes are not persistent between commands
+- Prefix commands with `cd` if necessary
+
+</environment>
+
+<response_format>
+# Response Format
+
+Each response must follow this format:
+
+THOUGHT:
+Explain your reasoning and what you are trying to learn.
+
+Then include **one or more tool calls**.
+
+Example of switching phases if exploration is complete:
+<example_response>
+I have identified the likely bug location and have enough information for a patch attempt.
+The relevant file is `src/parser/query_validator.py`. The validation logic appears to
+incorrectly flag aliased column references without checking whether the alias originates
+from a JOIN clause. A reasonable patch would add a check for JOIN context before raising
+the validation error. Since I now have a clear hypothesis, target file, patch idea, and
+validation plan, exploration is complete and I should switch to execution.
+
+[Calls switch_phase tool: {"phase": "execution", "reason": "Identified target file src/parser/query_validator.py, formed hypothesis about JOIN alias handling, and have a concrete patch plan and validation command."}]
+</example_response>
+
+Example of continuing exploration:
+<example_response>
+I need to understand the Builder-related code. Let me find relevant files and check the project structure.
+
+[Makes multiple bash tool calls: {"command": "ls -la"}, {"command": "find src -name '*.java' | grep -i builder"}, {"command": "cat README.md | head -50"}]
+</example_response>
+
+</response_format>
+
+<tool_requirement>
+# REQUIRED ACTION (CRITICAL)
+
+Every response MUST end with a tool call.
+
+You have exactly TWO possible actions:
+
+1. Call the `bash` tool
+2. Call the `switch_phase` tool
+
+You MUST choose one of these actions on EVERY step.
+
+A response without a tool call is INVALID.
+
+Text-only responses are INVALID.
+
+Never finish a response without a tool call.
+</tool_requirement>
+
+</instructions> 
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 3]
+role: user
+content:
+=== CURRENT OBJECTIVE ===
+Initial exploration of the issue. Identify the relevant code implementing the behavior described in the task and prepare a patch plan.
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 4]
+role: user
+content:
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 5]
+role: user
+content:
+=== CURRENT PHASE CONTEXT ===
+These messages contain the transcript of the current phase, including your previous actions, command outputs, and reasoning.
+Use this information to decide whether to continue the phase or switch phases.
+
+STEP 1
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "ls -R"}
+
+STEP 2
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<warning>
+The output of your last command was too long.
+Please try a different command that produces less output.
+If you're looking at a file you can try use head, tail or sed to view a smaller number of lines selectively.
+If you're using grep or find and it produced too much output, you can use a more selective search pattern.
+If you really need to see something from the full command's output, you can redirect output to a file and then search in that file.
+</warning><output_head>
+.:
+CHANGELOG.md
+CODE_OF_CONDUCT.md
+CONTRIBUTING.md
+LICENSE.md
+MANIFEST.in
+README.md
+benchmarks
+docs
+examples
+images
+mypy.ini
+plugins
+pytest.ini
+requirements.txt
+requirements_dev.txt
+setup.py
+src
+test
+tox.ini
+util.py
+
+./benchmarks:
+bench_001_package.sql
+bench_002
+benchmarks.yml
+
+./benchmarks/bench_002:
+bench_002_pearson.sql
+bench_002_pearson_fix.sql
+
+./docs:
+Makefile
+README.md
+make.bat
+requirements.txt
+source
+
+./docs/source:
+_static
+api.rst
+architecture.rst
+cli.rst
+conf.py
+configuration.rst
+developingplugins.rst
+dialects.rst
+favicon-fluff.png
+gettingstarted.rst
+indentation.rst
+index.rst
+inthewild.rst
+jointhecommunity.rst
+production.rst
+realworld.rst
+rules.rst
+teamrollout.rst
+vision.rst
+
+./docs/source/_static:
+custom.css
+images
+
+./docs/source/_static/images:
+sqlfluff-lrg.png
+sqlfluff-sm2-sq.png
+
+./examples:
+01_basic_api_usage.py
+02_timing_api_steps.py
+03_extracting_references.py
+04_getting_rules_and_dialects.py
+
+./images:
+README.md
+sqlfluff-lrg-border.png
+sqlfluff-lrg-border.svg
+sqlfluff-wide-lrg.png
+sqlfluff-wide-media-preview-banner.png
+sqlfluff-wide.png
+sqlfluff-wide.svg
+
+./plugins:
+sqlfluff-plugin-example
+sqlfluff-templater-dbt
+
+./plugins/sqlfluff-plugin-example:
+MANIFEST.in
+setup.py
+src
+test
+
+./plugins/sqlfluff-plugin-example/src:
+example
+
+./plugins/sqlfluff-plugin-example/src/example:
+__init__.py
+plugin_default_config.cfg
+rules.py
+
+./plugins/sqlfluff-plugin-example/test:
+rules
+
+./plugins/sqlfluff-plugin-example/test/rules:
+rule_test_cases_test.py
+test_cases
+
+./plugins/sqlfluff-plugin-example/test/rules/test_cases:
+Rule_Example_L001.yml
+
+./plugins/sqlfluff-templater-dbt:
+README.md
+setup.py
+sqlfluff_templater_dbt
+test
+
+./plugins/sqlfluff-templater-dbt/sqlfluff_templater_dbt:
+__init__.py
+templater.py
+
+./plugins/sqlfluff-templater-dbt/test:
+__init__.py
+fixtures
+linter_test.py
+rules_test.py
+templater_test.py
+
+./plugins/sqlfluff-templater-dbt/test/fixtures:
+dbt
+
+./plugins/sqlfluff-templater-dbt/test/fixtures/dbt:
+dbt_project
+error_models
+macro_in_macro.sql
+profiles.yml
+templater.py
+test.sql
+use_dbt_utils.sql
+use_headers.sql
+use_var.sql
+
+./plugins/sqlfluff-templater-dbt/test/fixtures/dbt/dbt_project:
+dbt_project.yml
+macros
+models
+packages.yml
+tests
+
+./plugins/sqlfluff-templater-dbt/test/fixtures/dbt/dbt_project/macros:
+echo.sql
+my_default_config.sql
+my_headers.sql
+
+./plugins/sqlfluff-templater-dbt/test/fixtures/dbt/dbt_project/models:
+depends_on_ephemeral
+my_new_project
+
+./plugins/sqlfluff-templater-dbt/test/fixtures/dbt/dbt_project/models/depends_on_ephemeral:
+a.sql
+b.sql
+c.sql
+d.sql
+
+./plugins/sqlfluff-templater-dbt/test/fixtures/dbt/dbt_project/models/my_new_project:
+L034_test.sql
+disabled_model.sql
+incremental.sql
+issue_1608.sql
+issue_1608.sql.after
+macro_in_macro.sql
+multiple_trailing_newline.sql
+select_distinct_group_by.sql
+single_trailing_newline.sql
+src_jaffle_shop.yml
+use_dbt_utils.sql
+use_headers.sql
+use_var.sql
+
+./plugins/sqlfluff-templater-dbt/test/fixtures/dbt/dbt_project/tests:
+test.sql
+
+./plugins/sqlfluff-templater-dbt/test/fixtures/dbt/error_models:
+compiler_error.sql
+exception_connect_database.sql
+
+./src:
+sqlfluff
+sqlfluff.egg-info
+
+./src/sqlfluff:
+__init__.py
+__main__.py
+api
+cli
+config.ini
+core
+dialects
+diff_quality_plugin.py
+rules
+testing
+
+./src/sqlfluff/api:
+__init__.py
+info.py
+simple.py
+
+./src/sqlfluff/cli:
+__init__.py
+commands.py
+formatters.py
+helpers.py
+
+./src/sqlfluff/core:
+__init__.py
+config.py
+default_config.cfg
+dialects
+enums.py
+errors.py
+file_helpers.py
+linter
+parser
+plugin
+rules
+string_helpers.py
+templaters
+timing.py
+
+./src/sqlfluff/core/dialects:
+__init__.py
+base.py
+common.py
+
+./src/sqlfluff/core/linter:
+__init__.py
+common.py
+linted_dir.py
+linted_file.py
+linter.py
+linting_result.py
+runner.py
+
+./src/sqlfluff/core/parser:
+__init__.py
+context.py
+grammar
+helpers.py
+lexer.py
+markers.py
+match_logging.py
+match_result.py
+match_wrapper.py
+matchable.py
+parser.py
+parsers.py
+segments
+
+./src/sqlfluff/core/parser/grammar:
+__init__.py
+anyof.py
+base.py
+conditional.py
+delimited.py
+greedy.py
+noncode.py
+sequence.py
+
+./src/sqlfluff/core/parser/segments:
+__init__.py
+base.py
+ephemeral.py
+generator.py
+meta.py
+raw.py
+
+./src/sqlfluff/core/plugin:
+__init__.py
+hookspecs.py
+host.py
+lib.py
+
+./src/sqlfluff/core/rules:
+__init__.py
+analysis
+base.py
+config_info.py
+doc_decorators.py
+loader.py
+
+./src/sqlfluff/core/rules/analysis:
+__init__.py
+select.py
+select_crawler.py
+
+./src/sqlfluff/core/templaters:
+__init__.py
+base.py
+jinja.py
+python.py
+
+./src/sqlfluff/dialects:
+__init__.py
+dialect_ansi.py
+dialect_ansi_keywords.py
+dialect_bigquery.py
+dialect_bigquery_keywords.py
+dialect_exasol.py
+dialect_exasol_keywords.py
+dialect_hive.py
+dialect_hive_keywords.py
+dialect_mysql.py
+dialect_postgres.py
+dialect_postgres_keywords.py
+dialect_redshift.py
+dialect_redshift_keywords.py
+dialect_snowflake.py
+dialect_snowflake_keywords.py
+dialect_spark3.py
+dialect_spark3_keywords.py
+dialect_sqlite.py
+dialect_teradata.py
+dialect_tsql.py
+dialect_tsql_keywords.py
+
+./src/sqlfluff/rules:
+L001.py
+L002.py
+L003.py
+L004.py
+L005.py
+L006.py
+L007.py
+L00
+</output_head>
+<elided_chars>
+36755 characters elided
+</elided_chars>
+<output_tail>
+yml
+
+./test/fixtures/linter/autofix/ansi/008_looping_rules_l003_l016_l019:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/ansi/008_with_clause:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/ansi/009_keyword_capitalisation:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/ansi/010_CTEs_and_newlines:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/ansi/011_indentation:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/ansi/012_templating:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/ansi/013_order_by_explicit:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/ansi/014_looping_interaction_between_l008_and_l030:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/ansi/015_jinja_leading_whitespace:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/ansi/016_index_error_with_jinja_if:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/ansi/016_index_error_with_jinja_if2:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/ansi/016_no_fix_in_template_loops:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/ansi/017_lintresult_fixes_cannot_span_block_boundaries:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/ansi/018_l003_indent_templated_code:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/ansi/019_trailing_comma_to_leading:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/ansi/020_L008_trailing_comma:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/ansi/021_fix_respects_noqa:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/bigquery:
+001_templating
+002_templating
+003_templating
+004_templating
+005_unnest_spacing
+
+./test/fixtures/linter/autofix/bigquery/001_templating:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/bigquery/002_templating:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/bigquery/003_templating:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/bigquery/004_templating:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/bigquery/005_unnest_spacing:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/autofix/snowflake:
+001_semi_structured
+
+./test/fixtures/linter/autofix/snowflake/001_semi_structured:
+after.sql
+before.sql
+test-config.yml
+
+./test/fixtures/linter/diffquality:
+parse_error.sql
+
+./test/fixtures/linter/sqlfluffignore:
+path_a
+path_b
+path_c
+
+./test/fixtures/linter/sqlfluffignore/path_a:
+query_a.sql
+
+./test/fixtures/linter/sqlfluffignore/path_b:
+query_b.sql
+query_c.sql
+
+./test/fixtures/rules:
+R001_global_config_test.yml
+custom
+std_rule_cases
+
+./test/fixtures/rules/custom:
+L000.py
+S000.py
+bad_rule_name
+
+./test/fixtures/rules/custom/bad_rule_name:
+E000.py
+
+./test/fixtures/rules/std_rule_cases:
+L001.yml
+L002.yml
+L003.yml
+L004.yml
+L005.yml
+L006.yml
+L007.yml
+L008.yml
+L010.yml
+L011.yml
+L012.yml
+L013.yml
+L014.yml
+L015.yml
+L016.yml
+L017.yml
+L018.yml
+L019.yml
+L020.yml
+L021.yml
+L022.yml
+L023.yml
+L024.yml
+L025.yml
+L026.yml
+L027.yml
+L028.yml
+L029.yml
+L030.yml
+L031.yml
+L032.yml
+L033.yml
+L034.yml
+L035.yml
+L036.yml
+L037.yml
+L038.yml
+L039.yml
+L040.yml
+L041.yml
+L042.yml
+L043.yml
+L044.yml
+L045.yml
+L046.yml
+L047.yml
+L048.yml
+L049.yml
+README.md
+
+./test/fixtures/templater:
+jinja_a
+jinja_b
+jinja_c_dbt
+jinja_d_roundtrip
+jinja_e
+jinja_f
+jinja_g_macros
+jinja_h_macros
+jinja_i_raw
+jinja_j_libraries
+jinja_k_config_override_path_macros
+jinja_l_metas
+
+./test/fixtures/templater/jinja_a:
+jinja.sql
+jinja.yml
+
+./test/fixtures/templater/jinja_b:
+jinja.sql
+jinja.yml
+
+./test/fixtures/templater/jinja_c_dbt:
+dbt_builtins.sql
+dbt_builtins.yml
+var_default.sql
+var_default.yml
+
+./test/fixtures/templater/jinja_d_roundtrip:
+test.sql
+
+./test/fixtures/templater/jinja_e:
+jinja.sql
+jinja.yml
+
+./test/fixtures/templater/jinja_f:
+jinja.sql
+jinja.yml
+
+./test/fixtures/templater/jinja_g_macros:
+jinja.sql
+jinja.yml
+macros
+
+./test/fixtures/templater/jinja_g_macros/macros:
+macro_1.sql
+
+./test/fixtures/templater/jinja_h_macros:
+jinja.sql
+jinja.yml
+macros
+
+./test/fixtures/templater/jinja_h_macros/macros:
+bad_macro.sql
+
+./test/fixtures/templater/jinja_i_raw:
+raw_tag.sql
+raw_tag.yml
+raw_tag_2.sql
+raw_tag_2.yml
+
+./test/fixtures/templater/jinja_j_libraries:
+jinja.sql
+jinja.yml
+libs
+
+./test/fixtures/templater/jinja_j_libraries/libs:
+bar.py
+foo.py
+not_python.txt
+
+./test/fixtures/templater/jinja_k_config_override_path_macros:
+jinja.sql
+jinja.yml
+macros
+
+./test/fixtures/templater/jinja_k_config_override_path_macros/macros:
+foo.sql
+
+./test/fixtures/templater/jinja_l_metas:
+001.sql
+001.yml
+002.sql
+002.yml
+
+./test/rules:
+std_L003_L036_L039_combo_test.py
+std_L003_test.py
+std_L007_test.py
+std_L016_L36_combo_test.py
+std_L019_test.py
+std_L020_test.py
+std_L048_test.py
+std_fix_auto_test.py
+std_roundtrip_test.py
+std_test.py
+yaml_test_cases_test.py
+
+</output_tail>
+
+--------------------------------------------------------------------------------
+
+
+================================================================================
+MODEL RESPONSE
+================================================================================
+
+{'content': None,
+ 'extra': {'actions': [{'command': 'cat <<EOF > reproduce_issue.sql\n'
+                                   'SELECT\n'
+                                   '    reacted_table_name_right.descendant_id '
+                                   'AS category_id,\n'
+                                   '    '
+                                   'string_agg(redacted_table_name_left.name, '
+                                   "' → ' ORDER BY "
+                                   'reacted_table_name_right.generations DESC) '
+                                   'AS breadcrumbs -- noqa\n'
+                                   "FROM {{ ref2('redacted_schema_name', "
+                                   "'redacted_table_name_left') }} AS "
+                                   'redacted_table_name_left\n'
+                                   "INNER JOIN {{ ref2('redacted_schema_name', "
+                                   "'reacted_table_name_right') }} AS "
+                                   'reacted_table_name_right\n'
+                                   '    ON redacted_table_name_left.id = '
+                                   'order_issue_category_hierarchies.ancestor_id\n'
+                                   'GROUP BY '
+                                   'reacted_table_name_right.descendant_id\n'
+                                   'EOF\n'
+                                   '\n'
+                                   'cat <<EOF > .sqlfluff\n'
+                                   '[sqlfluff]\n'
+                                   'verbose = 2\n'
+                                   'dialect = postgres\n'
+                                   'templater = jinja\n'
+                                   'exclude_rules = None\n'
+                                   'output_line_length = 80\n'
+                                   'runaway_limit = 10\n'
+                                   'ignore_templated_areas = True\n'
+                                   'processes = 1\n'
+                                   'sql_file_exts = .sql\n'
+                                   '\n'
+                                   '[sqlfluff:indentation]\n'
+                                   'indented_joins = False\n'
+                                   'indented_using_on = True\n'
+                                   'template_blocks_indent = True\n'
+                                   '\n'
+                                   '[sqlfluff:templater]\n'
+                                   'unwrap_wrapped_queries = True\n'
+                                   '\n'
+                                   '[sqlfluff:templater:jinja]\n'
+                                   'apply_dbt_builtins = True\n'
+                                   '\n'
+                                   '[sqlfluff:templater:jinja:macros]\n'
+                                   'dbt_ref = {% macro ref(model_ref) '
+                                   '%}{{model_ref}}{% endmacro %}\n'
+                                   'ref2 = {% macro ref2(schema, table) '
+                                   '%}{{schema}}_{{table}}{% endmacro %}\n'
+                                   'dbt_source = {% macro source(source_name, '
+                                   'table) %}{{source_name}}_{{table}}{% '
+                                   'endmacro %}\n'
+                                   'dbt_config = {% macro config() %}{% for k '
+                                   'in kwargs %}{% endfor %}{% endmacro %}\n'
+                                   'dbt_var = {% macro var(variable, '
+                                   "default='') %}item{% endmacro %}\n"
+                                   'dbt_is_incremental = {% macro '
+                                   'is_incremental() %}True{% endmacro %}\n'
+                                   'EOF\n',
+                        'tool': 'bash',
+                        'tool_call_id': 'call_05a11a4f259347c090c35061c9a2__thought__CiEBjz1rXxsYd/X7rqzFtM9yP3SRfRD8VepBXYJn6e+8aVc='}],
+           'cost': 0.0037127999999999996,
+           'phase': 'exploration',
+           'response': {'choices': [{'finish_reason': 'tool_calls',
+                                     'index': 0,
+                                     'message': {'content': None,
+                                                 'function_call': None,
+                                                 'images': [],
+                                                 'provider_specific_fields': {'thought_signatures': ['CiEBjz1rXxsYd/X7rqzFtM9yP3SRfRD8VepBXYJn6e+8aVc=']},
+                                                 'role': 'assistant',
+                                                 'thinking_blocks': [],
+                                                 'tool_calls': [{'function': {'arguments': '{"command": '
+                                                                                           '"cat '
+                                                                                           '<<EOF '
+                                                                                           '> '
+                                                                                           'reproduce_issue.sql\\nSELECT\\n    '
+                                                                                           'reacted_table_name_right.descendant_id '
+                                                                                           'AS '
+                                                                                           'category_id,\\n    '
+                                                                                           'string_agg(redacted_table_name_left.name, '
+                                                                                           "' "
+                                                                                           '→ '
+                                                                                           "' "
+                                                                                           'ORDER '
+                                                                                           'BY '
+                                                                                           'reacted_table_name_right.generations '
+                                                                                           'DESC) '
+                                                                                           'AS '
+                                                                                           'breadcrumbs '
+                                                                                           '-- '
+                                                                                           'noqa\\nFROM '
+                                                                                           '{{ '
+                                                                                           "ref2('redacted_schema_name', "
+                                                                                           "'redacted_table_name_left') "
+                                                                                           '}} '
+                                                                                           'AS '
+                                                                                           'redacted_table_name_left\\nINNER '
+                                                                                           'JOIN '
+                                                                                           '{{ '
+                                                                                           "ref2('redacted_schema_name', "
+                                                                                           "'reacted_table_name_right') "
+                                                                                           '}} '
+                                                                                           'AS '
+                                                                                           'reacted_table_name_right\\n    '
+                                                                                           'ON '
+                                                                                           'redacted_table_name_left.id '
+                                                                                           '= '
+                                                                                           'order_issue_category_hierarchies.ancestor_id\\nGROUP '
+                                                                                           'BY '
+                                                                                           'reacted_table_name_right.descendant_id\\nEOF\\n\\ncat '
+                                                                                           '<<EOF '
+                                                                                           '> '
+                                                                                           '.sqlfluff\\n[sqlfluff]\\nverbose '
+                                                                                           '= '
+                                                                                           '2\\ndialect '
+                                                                                           '= '
+                                                                                           'postgres\\ntemplater '
+                                                                                           '= '
+                                                                                           'jinja\\nexclude_rules '
+                                                                                           '= '
+                                                                                           'None\\noutput_line_length '
+                                                                                           '= '
+                                                                                           '80\\nrunaway_limit '
+                                                                                           '= '
+                                                                                           '10\\nignore_templated_areas '
+                                                                                           '= '
+                                                                                           'True\\nprocesses '
+                                                                                           '= '
+                                                                                           '1\\nsql_file_exts '
+                                                                                           '= '
+                                                                                           '.sql\\n\\n[sqlfluff:indentation]\\nindented_joins '
+                                                                                           '= '
+                                                                                           'False\\nindented_using_on '
+                                                                                           '= '
+                                                                                           'True\\ntemplate_blocks_indent '
+                                                                                           '= '
+                                                                                           'True\\n\\n[sqlfluff:templater]\\nunwrap_wrapped_queries '
+                                                                                           '= '
+                                                                                           'True\\n\\n[sqlfluff:templater:jinja]\\napply_dbt_builtins '
+                                                                                           '= '
+                                                                                           'True\\n\\n[sqlfluff:templater:jinja:macros]\\ndbt_ref '
+                                                                                           '= '
+                                                                                           '{% '
+                                                                                           'macro '
+                                                                                           'ref(model_ref) '
+                                                                                           '%}{{model_ref}}{% '
+                                                                                           'endmacro '
+                                                                                           '%}\\nref2 '
+                                                                                           '= '
+                                                                                           '{% '
+                                                                                           'macro '
+                                                                                           'ref2(schema, '
+                                                                                           'table) '
+                                                                                           '%}{{schema}}_{{table}}{% '
+                                                                                           'endmacro '
+                                                                                           '%}\\ndbt_source '
+                                                                                           '= '
+                                                                                           '{% '
+                                                                                           'macro '
+                                                                                           'source(source_name, '
+                                                                                           'table) '
+                                                                                           '%}{{source_name}}_{{table}}{% '
+                                                                                           'endmacro '
+                                                                                           '%}\\ndbt_config '
+                                                                                           '= '
+                                                                                           '{% '
+                                                                                           'macro '
+                                                                                           'config() '
+                                                                                           '%}{% '
+                                                                                           'for '
+                                                                                           'k '
+                                                                                           'in '
+                                                                                           'kwargs '
+                                                                                           '%}{% '
+                                                                                           'endfor '
+                                                                                           '%}{% '
+                                                                                           'endmacro '
+                                                                                           '%}\\ndbt_var '
+                                                                                           '= '
+                                                                                           '{% '
+                                                                                           'macro '
+                                                                                           'var(variable, '
+                                                                                           "default='') "
+                                                                                           '%}item{% '
+                                                                                           'endmacro '
+                                                                                           '%}\\ndbt_is_incremental '
+                                                                                           '= '
+                                                                                           '{% '
+                                                                                           'macro '
+                                                                                           'is_incremental() '
+                                                                                           '%}True{% '
+                                                                                           'endmacro '
+                                                                                           '%}\\nEOF\\n"}',
+                                                                              'name': 'bash'},
+                                                                 'id': 'call_05a11a4f259347c090c35061c9a2__thought__CiEBjz1rXxsYd/X7rqzFtM9yP3SRfRD8VepBXYJn6e+8aVc=',
+                                                                 'index': 0,
+                                                                 'provider_specific_fields': {'thought_signature': 'CiEBjz1rXxsYd/X7rqzFtM9yP3SRfRD8VepBXYJn6e+8aVc='},
+                                                                 'type': 'function'}]}}],
+                        'created': 1773036948,
+                        'id': 'lWWuac2KCtGDitUPyrC2YQ',
+                        'model': 'gemini-3-flash-preview',
+                        'object': 'chat.completion',
+                        'system_fingerprint': None,
+                        'usage': {'cache_read_input_tokens': 4136,
+                                  'completion_tokens': 496,
+                                  'completion_tokens_details': {'text_tokens': 496},
+                                  'prompt_tokens': 8172,
+                                  'prompt_tokens_details': {'audio_tokens': None,
+                                                            'cached_tokens': 4136,
+                                                            'image_tokens': None,
+                                                            'text_tokens': 4036},
+                                  'total_tokens': 8668},
+                        'vertex_ai_citation_metadata': [],
+                        'vertex_ai_grounding_metadata': [],
+                        'vertex_ai_safety_results': [],
+                        'vertex_ai_url_context_metadata': []},
+           'step_index': 2,
+           'timestamp': 1773036952.6364002},
+ 'function_call': None,
+ 'images': [],
+ 'provider_specific_fields': {'thought_signatures': ['CiEBjz1rXxsYd/X7rqzFtM9yP3SRfRD8VepBXYJn6e+8aVc=']},
+ 'role': 'assistant',
+ 'thinking_blocks': [],
+ 'tool_calls': [{'function': {'arguments': '{"command": "cat <<EOF > '
+                                           'reproduce_issue.sql\\nSELECT\\n    '
+                                           'reacted_table_name_right.descendant_id '
+                                           'AS category_id,\\n    '
+                                           'string_agg(redacted_table_name_left.name, '
+                                           "' → ' ORDER BY "
+                                           'reacted_table_name_right.generations '
+                                           'DESC) AS breadcrumbs -- '
+                                           'noqa\\nFROM {{ '
+                                           "ref2('redacted_schema_name', "
+                                           "'redacted_table_name_left') }} AS "
+                                           'redacted_table_name_left\\nINNER '
+                                           'JOIN {{ '
+                                           "ref2('redacted_schema_name', "
+                                           "'reacted_table_name_right') }} AS "
+                                           'reacted_table_name_right\\n    ON '
+                                           'redacted_table_name_left.id = '
+                                           'order_issue_category_hierarchies.ancestor_id\\nGROUP '
+                                           'BY '
+                                           'reacted_table_name_right.descendant_id\\nEOF\\n\\ncat '
+                                           '<<EOF > '
+                                           '.sqlfluff\\n[sqlfluff]\\nverbose = '
+                                           '2\\ndialect = postgres\\ntemplater '
+                                           '= jinja\\nexclude_rules = '
+                                           'None\\noutput_line_length = '
+                                           '80\\nrunaway_limit = '
+                                           '10\\nignore_templated_areas = '
+                                           'True\\nprocesses = '
+                                           '1\\nsql_file_exts = '
+                                           '.sql\\n\\n[sqlfluff:indentation]\\nindented_joins '
+                                           '= False\\nindented_using_on = '
+                                           'True\\ntemplate_blocks_indent = '
+                                           'True\\n\\n[sqlfluff:templater]\\nunwrap_wrapped_queries '
+                                           '= '
+                                           'True\\n\\n[sqlfluff:templater:jinja]\\napply_dbt_builtins '
+                                           '= '
+                                           'True\\n\\n[sqlfluff:templater:jinja:macros]\\ndbt_ref '
+                                           '= {% macro ref(model_ref) '
+                                           '%}{{model_ref}}{% endmacro '
+                                           '%}\\nref2 = {% macro ref2(schema, '
+                                           'table) %}{{schema}}_{{table}}{% '
+                                           'endmacro %}\\ndbt_source = {% '
+                                           'macro source(source_name, table) '
+                                           '%}{{source_name}}_{{table}}{% '
+                                           'endmacro %}\\ndbt_config = {% '
+                                           'macro config() %}{% for k in '
+                                           'kwargs %}{% endfor %}{% endmacro '
+                                           '%}\\ndbt_var = {% macro '
+                                           "var(variable, default='') %}item{% "
+                                           'endmacro %}\\ndbt_is_incremental = '
+                                           '{% macro is_incremental() %}True{% '
+                                           'endmacro %}\\nEOF\\n"}',
+                              'name': 'bash'},
+                 'id': 'call_05a11a4f259347c090c35061c9a2__thought__CiEBjz1rXxsYd/X7rqzFtM9yP3SRfRD8VepBXYJn6e+8aVc=',
+                 'index': 0,
+                 'provider_specific_fields': {'thought_signature': 'CiEBjz1rXxsYd/X7rqzFtM9yP3SRfRD8VepBXYJn6e+8aVc='},
+                 'type': 'function'}]}

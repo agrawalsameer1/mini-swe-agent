@@ -1,0 +1,20 @@
+=== CURRENT OBJECTIVE ===
+Execute the patch plan identified during exploration and validate the fix.
+
+1. Bug hypothesis: `Rule_L036` in `src/sqlfluff/rules/L036.py` fails to correctly remove the existing `WhitespaceSegment` that follows the `[META] indent` segment after the `SELECT` keyword. When it inserts a new `NewlineSegment`, the original single space remains, and `Rule_L003` (indentation) treats this space as part of the indentation for the new line, resulting in 9 spaces (8 for the indent + 1 leftover) instead of 8.
+
+2. Open `src/sqlfluff/rules/L036.py` and locate the `_eval_multiple_select_target_elements` method.
+
+3. Modify the whitespace cleanup loop (around line 240-260) that prepares the `insert_buff` for the first select target. Ensure it explicitly identifies and removes any `WhitespaceSegment` even if it is preceded by a `MetaSegment` (like the `[META] indent`).
+
+4. In the same method, ensure that when `L036` constructs the `LintFix` for the first target, it replaces the entire sequence of segments between the `SELECT` keyword and the first `select_clause_element` with a single `NewlineSegment`. This allows `Rule_L003` to handle the indentation naturally in a subsequent pass without being biased by leftover whitespace.
+
+5. Specifically, update the logic that populates `insert_buff` to:
+    - Scan forward from the `SELECT` keyword.
+    - Collect all `MetaSegment`s to preserve them.
+    - Identify the `WhitespaceSegment` (the single space) and mark it for deletion or exclusion from the new buffer.
+    - Insert the `NewlineSegment` *before* any preserved `Indent` meta segments to ensure the indent applies to the new line.
+
+6. Validation: Run `sqlfluff fix reproduce_issue.sql --force` and verify with `sqlfluff parse reproduce_issue.sql` that the first target `my_id` is indented by exactly 8 spaces and that the `WARNING One fix for L003 not applied` is no longer present.
+
+7. If the validation fails or the 9-space indentation persists, switch back to exploration to investigate how `Rule_L003` calculates the "base" indentation for segments following a `NewlineSegment` in the presence of `MetaSegment`s.

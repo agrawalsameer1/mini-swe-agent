@@ -1,0 +1,34 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+ISSUE CORE:
+- Rule L031 ("Avoid table aliases in from clauses and join conditions") triggers even when no JOIN is present in the query.
+- The rule's implementation in `src/sqlfluff/rules/L031.py` lacks a check for the presence of multiple tables or join clauses before flagging aliases.
+- This behavior is particularly problematic for TSQL where aliases are often used for readability or to handle bracketed identifiers.
+
+OBSERVED BEHAVIOR:
+- A simple `SELECT ... FROM table AS alias` triggers L031 with the message "Avoid using aliases in join condition", despite no join existing.
+- Reproduction: `SELECT a.[hello] FROM mytable AS a` fails L031.
+
+CONFIRMED RELEVANT FILES:
+- `src/sqlfluff/rules/L031.py`: Contains the logic for Rule L031.
+- `test/fixtures/rules/std_rule_cases/L031.yml`: Contains test cases for the rule.
+
+CONFIRMED IRRELEVANT PATHS:
+- None so far.
+
+ACTIVE HYPOTHESES:
+- The `_eval` method in `Rule_L031` collects all `from_expression_element` segments and lints them without verifying if the query actually involves a join (either via `join_clause` or multiple `from_expression` elements).
+
+INVALIDATED HYPOTHESES:
+- None so far.
+
+ATTEMPT LEDGER:
+- N/A (Phase transition to execution just occurred).
+
+KNOWN REPRO / VALIDATION COMMANDS:
+- `sqlfluff lint reproduce_l031.sql --dialect tsql --rules L031`
+- `sqlfluff parse reproduce_l031.sql --dialect tsql`
+
+KEY CODE LOCATIONS:
+- `src/sqlfluff/rules/L031.py`: `Rule_L031._eval` and `Rule_L031._lint_aliases_in_join`.

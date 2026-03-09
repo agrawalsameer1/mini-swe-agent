@@ -1,0 +1,34 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+ISSUE CORE:
+- `Dataset.to_json_dict(suppress_invalid_tags=True)` fails to suppress exceptions when accessing tags that contain invalid data.
+- The cause is that `data_element = self[key]` is called outside the `try...except` block. In `pydicom`, accessing a key in a dataset read from a file triggers lazy decoding (`DataElement_from_raw`), which can raise `TypeError` or `ValueError` if the data is invalid for its VR (e.g., an invalid `IS` value like '2.5').
+
+OBSERVED BEHAVIOR:
+- `TypeError: Could not convert value to integer without loss` is raised during `to_json_dict` even when `suppress_invalid_tags=True`.
+- The traceback shows the error occurs at `data_element = self[key]` inside `pydicom/dataset.py`.
+
+CONFIRMED RELEVANT FILES:
+- `pydicom/dataset.py`: Contains the `to_json_dict` method.
+- `pydicom/valuerep.py`: Contains the `IS` class and other VR logic that raises conversion errors.
+
+CONFIRMED IRRELEVANT PATHS:
+- None so far.
+
+ACTIVE HYPOTHESES:
+- Moving `data_element = self[key]` inside the `try...except` block in `to_json_dict` will allow `suppress_invalid_tags=True` to correctly catch and skip tags with decoding errors.
+
+INVALIDATED HYPOTHESES:
+- None so far.
+
+ATTEMPT LEDGER:
+- None so far.
+
+KNOWN REPRO / VALIDATION COMMANDS:
+- `python3 reproduce_issue_v2.py`: A script that creates a `Dataset` with a `RawDataElement` containing an invalid `IS` value ('2.5') and calls `to_json_dict(suppress_invalid_tags=True)`.
+
+KEY CODE LOCATIONS:
+- `pydicom/dataset.py`: `to_json_dict` method (around line 2460).
+- `pydicom/dataset.py`: `__getitem__` (around line 939), which triggers `DataElement_from_raw`.
+- `pydicom/dataelem.py`: `DataElement_from_raw`.

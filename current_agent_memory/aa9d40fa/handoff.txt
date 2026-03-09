@@ -1,0 +1,45 @@
+=== CURRENT OBJECTIVE ===
+Execute the patch plan identified during exploration and validate the fix.
+
+1. The bug is a `TypeError: 'NoneType' object is not subscriptable` in `src/marshmallow/schema.py` within the `_invoke_field_validators` method. This occurs when a nested schema receives invalid input (e.g., a string instead of a mapping), causing the unmarshaller to return `None`, which is then passed as the `data` argument to field validators.
+
+2. In `src/marshmallow/schema.py`, modify the `_invoke_field_validators` method (around line 863) to return early if `data` is `None`.
+
+3. The edit should look like this:
+```python
+    def _invoke_field_validators(self, unmarshal, data, many):
+        if data is None:
+            return
+        for attr_name in self.__processors__[(VALIDATES, False)]:
+            # ... existing code ...
+```
+
+4. To validate the fix, create and run a reproduction script `reproduce_issue.py`:
+```python
+import collections
+import collections.abc
+if not hasattr(collections, 'Mapping'):
+    collections.Mapping = collections.abc.Mapping
+
+from marshmallow import Schema, fields, validates
+
+class Bar(Schema):
+    value = fields.String()
+    @validates('value')
+    def validate_value(self, value):
+        pass
+
+class Foo(Schema):
+    bar = fields.Nested(Bar)
+
+sch = Foo()
+try:
+    sch.validate({'bar': 'invalid'})
+    print("Validation successful (no crash)")
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+```
+Run it with: `PYTHONPATH=src python3 reproduce_issue.py`
+
+5. If the validation script still produces a `TypeError` or if other tests in `tests/` fail, switch back to exploration.

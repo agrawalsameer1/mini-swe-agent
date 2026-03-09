@@ -1,0 +1,13 @@
+=== CURRENT OBJECTIVE ===
+Execute the patch plan identified during exploration and validate the fix.
+
+1. The bug hypothesis is that `np.diff(poa_global.index)` returns an array of `Timedelta` objects when the index is timezone-aware, which cannot be cast directly to `float` in `pvlib/temperature.py`.
+2. The target file is `pvlib/temperature.py`.
+3. In `pvlib/temperature.py`, locate the `fuentes` function (around line 602).
+4. Change the line:
+   `timedelta_hours = np.diff(poa_global.index).astype(float) / 1e9 / 60 / 60`
+   to:
+   `timedelta_hours = np.diff(poa_global.index.asi8).astype(float) / 1e9 / 60 / 60`
+   (Using `.asi8` ensures we get the underlying nanosecond integers for both timezone-naive and timezone-aware pandas indexes).
+5. Run the validation script `python reproduce_bug.py` to ensure both naive and timezone-aware cases now pass without error.
+6. If the validation script fails or if `asi8` is not available in the environment's pandas version, switch back to exploration to find a more compatible way to extract nanosecond timestamps.
