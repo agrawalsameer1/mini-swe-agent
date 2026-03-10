@@ -13,6 +13,7 @@ from jinja2 import StrictUndefined, Template
 from pydantic import BaseModel
 
 import os
+import uuid
 
 import litellm
 import copy
@@ -29,16 +30,23 @@ from minisweagent.memory.components.agent_scratchpad import AgentScratchpad
 from pathlib import Path
 from pprint import pformat
 
+from collections.abc import Iterable
+
 MAXTOKENS = 4096
 
 class AgentConfig(BaseModel):
     """Check the config files in minisweagent/config for example settings."""
 
     distilled_memory_write_template: str
-    exploration_handoff_write_template: str
-    execution_report_write_template: str
-    exploration_scratchpad_write_template: str
-    execution_scratchpad_write_template: str
+    exploration_to_execution_handoff_template: str
+    exploration_to_testing_handoff_template: str
+    execution_to_exploration_report_template: str
+    execution_to_testing_report_template: str
+    testing_to_exploration_report_template: str
+    testing_to_execution_report_template: str
+
+    #exploration_scratchpad_write_template: str
+    #execution_scratchpad_write_template: str
 
     phase_memory_update_template: str
     """Template for updating agent phase memory."""
@@ -58,6 +66,8 @@ class AgentConfig(BaseModel):
     """System template used during execution phase."""
     execution_instance_template: str
     """User/task template used during execution phase."""
+    testing_system_template: str
+    testing_instance_template: str
     
     system_template: str
     """Template for the system message (the first message)."""
@@ -84,12 +94,26 @@ class DefaultAgent:
         self.cost = 0.0
         self.n_calls = 0
         self.phase = Phase.EXPLORATION
-        self.distilled_memory = AgentDistilledMemory("distilled_memory.txt")
+
+        self.task_id = uuid.uuid4().hex[:8]
+        self.memory_dir = Path("current_agent_memory") / str(self.task_id)
+
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
+
+        self.distilled_memory = AgentDistilledMemory(
+            str(self.memory_dir / "distilled_memory.txt")
+        )
         self.distilled_memory.reset()
-        self.handoff = AgentHandoff("handoff.txt")
+        self.handoff = AgentHandoff(
+            str(self.memory_dir / "handoff.txt")
+        )
         self.handoff.reset(self.phase, initial=True)
-        self.scratchpad = AgentScratchpad("scratchpad.txt")
-        self.scratchpad.reset(self.phase)
+
+        self.query_messages = ""
+        self.step_count = 0
+
+        #self.scratchpad = AgentScratchpad("scratchpad.txt")
+        #self.scratchpad.reset(self.phase)
         self.phase_start_idx = 2
         self.min_exploration_messages = 10
 
@@ -153,7 +177,8 @@ class DefaultAgent:
             finally:
                 self.save(self.config.output_path)
             if self.messages[-1].get("role") == "exit":
-                print("Final token count: " + str(litellm.token_counter(model=self.model.config.model_name, messages=self.messages)))
+                print("Final step count: " + str(self.step_count))
+                print("Final token count: " + str(litellm.token_counter(model=self.model.config.model_name, messages=self.query_messages)))
                 break
 
         return self.messages[-1].get("extra", {})
@@ -187,10 +212,21 @@ class DefaultAgent:
                 self.model.format_message(role="user", content=distilled_text)
             )
 
-        scratchpad_text = self.scratchpad.read().strip()
-        if scratchpad_text:
+        transcript = self._build_transcript(start_idx=self.phase_start_idx)
+
+        if transcript:
+            current_phase_messages = (
+                "=== CURRENT PHASE CONTEXT ===\n"
+                "These messages contain the transcript of the current phase, including your previous actions, command outputs, and reasoning.\n"
+                "Use this information to decide whether to continue the phase or switch phases.\n\n"
+                f"{transcript}"
+            )
+
             prompt_messages.append(
-                self.model.format_message(role="user", content=scratchpad_text)
+                self.model.format_message(
+                    role="user",
+                    content=current_phase_messages,
+                )
             )
 
         return prompt_messages
@@ -209,7 +245,7 @@ class DefaultAgent:
         query_messages = self._refresh_phase_prompts()
         next_step_index = self.n_calls + 1
 
-        logs_dir = Path("logs")
+        logs_dir = Path("logs") / str(self.task_id)
 
         # Reset logs folder at the start of a run
         if self.n_calls == 0 and logs_dir.exists():
@@ -256,7 +292,12 @@ class DefaultAgent:
                 f.write("\n" + "-" * 80 + "\n\n")
 
         self.n_calls += 1
+        print("[DEBUG] wrote prompt to log in query(), now calling self.model.query")
+        
+        self.query_messages = query_messages
+        
         message = self.model.query(query_messages)
+        print("[DEBUG] self.model.query finished running")
         message.setdefault("extra", {})
         message["extra"]["phase"] = self.phase.value
         message["extra"]["step_index"] = self.n_calls
@@ -283,6 +324,12 @@ class DefaultAgent:
                 self.config.execution_system_template,
                 self.config.execution_instance_template,
             )
+        if self.phase == Phase.TESTING:
+            return (
+                self.config.testing_system_template,
+                self.config.testing_instance_template,
+            )
+
         raise ValueError(f"Unknown phase: {self.phase}")
 
     def step(self) -> list[dict] | None:
@@ -290,6 +337,8 @@ class DefaultAgent:
         print(f"[DEBUG] phase at start of step: {self.phase}")
         self.execute_actions(self.query())
         print(f"[DEBUG] phase after execute_actions: {self.phase}")
+
+        self.step_count += 1
 
         if self.messages[-1].get("role") == "exit":
             return None
@@ -300,13 +349,17 @@ class DefaultAgent:
             return self.messages
 
         if self.phase == Phase.EXPLORATION:
-            scratchpad_text = self.create_exploration_scratchpad()
+            pass
+            #scratchpad_text = self.create_exploration_scratchpad()
         elif self.phase == Phase.EXECUTION:
-            scratchpad_text = self.create_execution_scratchpad()
+            pass
+            #scratchpad_text = self.create_execution_scratchpad()
+        elif self.phase == Phase.TESTING:
+            pass
         else:
             raise ValueError(f"Unknown phase: {self.phase}")
 
-        self.scratchpad.write(scratchpad_text)
+        #self.scratchpad.write(scratchpad_text)
 
         return self.messages
 
@@ -329,18 +382,20 @@ class DefaultAgent:
                     "reason": action.get("reason", ""),
                 },
             }
-        
-        # Generate the outgoing handoff/report from the phase we are leaving.
-        if old_phase == Phase.EXPLORATION and new_phase == Phase.EXECUTION:
-            handoff_text = self.create_exploration_handoff()
-        elif old_phase == Phase.EXECUTION and new_phase == Phase.EXPLORATION:
-            handoff_text = self.create_execution_report()
-        else:
-            raise ValueError(f"Unsupported phase switch: {old_phase} -> {new_phase}")
-        
-        # Update distilled task memory using the phase we are leaving.
+
         previous_distilled_memory = self.distilled_memory.read().strip()
         new_distilled_memory = self.create_distilled_memory(previous_distilled_memory)
+        
+        # Generate the outgoing handoff/report from the phase we are leaving.
+        if old_phase == Phase.EXPLORATION:
+            handoff_text = self.create_exploration_handoff(new_phase, previous_distilled_memory)
+        elif old_phase == Phase.EXECUTION:
+            handoff_text = self.create_execution_report(new_phase, previous_distilled_memory)
+        elif old_phase == Phase.TESTING:
+            handoff_text = self.create_testing_report(new_phase, previous_distilled_memory)
+            
+        else:
+            raise ValueError(f"Unsupported phase switch: {old_phase} -> {new_phase}")
 
         # Write memory artifacts before entering the new phase.
         self.handoff.reset(new_phase)
@@ -353,7 +408,7 @@ class DefaultAgent:
         self.phase = new_phase
         self.phase_start_idx = len(self.messages) + 1
 
-        self.scratchpad.reset(self.phase)
+        #self.scratchpad.reset(self.phase)
 
         return {
             "output": (
@@ -426,32 +481,157 @@ class DefaultAgent:
     
     def _build_transcript(self, start_idx: int | None = None, end_idx: int | None = None) -> str:
         """
-        Build a compact transcript from self.messages[start_idx:end_idx].
-        Includes message content and tool calls.
+        Build a readable transcript of the selected messages containing only
+        fields that are useful for reasoning, with step numbers.
         """
         msgs = self.messages[slice(start_idx, end_idx)]
-        transcript_parts: list[str] = []
+
+        lines: list[str] = []
+        step_num = 1
 
         for msg in msgs:
-            role = msg.get("role", "unknown")
+            role = msg.get("role", "")
 
-            content = msg.get("content")
-            if isinstance(content, str) and content.strip():
-                transcript_parts.append(f"{role.upper()}:\n{content.strip()}")
+            if role == "assistant":
+                content = msg.get("content")
+                tool_calls = msg.get("tool_calls") or []
 
-            tool_calls = msg.get("tool_calls") or []
-            if tool_calls:
-                tool_lines = []
-                for tc in tool_calls:
-                    fn = tc.get("function", {})
-                    name = fn.get("name", "")
-                    arguments = fn.get("arguments", "")
-                    tool_lines.append(f"- {name}({arguments})")
-                transcript_parts.append(
-                    f"{role.upper()} TOOL CALLS:\n" + "\n".join(tool_lines)
-                )
+                if content:
+                    lines.append(f"STEP {step_num}")
+                    lines.append("ASSISTANT THOUGHT:")
+                    lines.append(content.strip())
+                    lines.append("")
+                    step_num += 1
 
-        return "\n\n".join(transcript_parts)
+                for call in tool_calls:
+                    fn = call.get("function", {})
+                    name = fn.get("name")
+                    args = fn.get("arguments")
+
+                    lines.append(f"STEP {step_num}")
+                    lines.append("ASSISTANT TOOL CALL:")
+                    if name:
+                        lines.append(f"tool: {name}")
+                    if args:
+                        lines.append(f"arguments: {args}")
+                    lines.append("")
+                    step_num += 1
+
+            elif role == "tool":
+                lines.append(f"STEP {step_num}")
+                lines.append("TOOL RESULT:")
+
+                extra = msg.get("extra", {})
+                returncode = extra.get("returncode")
+                output = msg.get("content")
+                exception = extra.get("exception_info")
+
+                if returncode is not None:
+                    lines.append(f"return_code: {returncode}")
+
+                if output:
+                    if len(output) >= 500:
+                        prompt = """
+    You are summarizing tool output for a coding agent.
+
+    The agent executed a tool and received a very long output that needs to be condensed.
+
+    Your job is to produce a concise summary that preserves all information the agent
+    needs to make decisions, while removing redundancy and unnecessary detail.
+
+    <original_output>\n\n""" + output + "\n\n" +  """</original_output>
+
+    <instructions>
+
+    Create a summary that:
+    1. Preserves all CRITICAL information:
+       - Error messages and stack traces
+       - Test failures and assertion details
+       - File paths and line numbers
+       - Function/class names mentioned
+       - Specific values, counts, or measurements
+       - Exit codes or status indicators
+
+    2. Condenses REPETITIVE content:
+       - Multiple similar test passes (just count them)
+       - Repeated warnings (mention once with count)
+       - Long lists of similar items (sample + total count)
+       - Verbose debug output (keep key points only)
+
+    3. Removes IRRELEVANT content:
+       - Boilerplate headers/footers
+       - Excessive whitespace
+       - Duplicate information
+       - Overly verbose progress indicators
+
+    4. Maintains STRUCTURE when useful:
+       - Keep section headers if they organize information
+       - Preserve groupings (e.g., failed tests vs passed tests)
+       - Maintain chronological order for sequential operations
+
+    Format your summary as:
+
+    SUMMARY:
+    [Your condensed summary here]
+
+    KEY DETAILS:
+    - [Important detail 1]
+    - [Important detail 2]
+    - [Important detail 3]
+    ...
+
+    [If there are errors or failures:]
+    ERRORS/FAILURES:
+    - [Error 1 with relevant context]
+    - [Error 2 with relevant context]
+    ...
+
+    Requirements:
+    - Be concise but complete
+    - Use bullet points for clarity
+    - Keep technical details (file paths, function names, error types)
+    - Do not add interpretation or analysis
+    - Do not omit information that might affect the agent's next action
+    - Aim for 20-30% of original length while keeping all critical information
+
+    </instructions>
+    """
+                        messages = [
+                            self.model.format_message(role="system", content=prompt),
+                        ]
+
+                        response = litellm.completion(
+                            model=self.model.config.model_name,
+                            messages=messages,
+                            **self.model.config.model_kwargs,
+                        )
+
+                        output = response["choices"][0]["message"]["content"]
+
+                        print("SUMMARIZED MODEL OUTPUT:\n")
+                        print(output)
+                        print("\n\n")
+
+                    lines.append("output:")
+                    lines.append(output.strip())
+
+                if exception:
+                    lines.append("exception:")
+                    lines.append(exception.strip())
+
+                lines.append("")
+                step_num += 1
+
+            elif role == "user":
+                content = msg.get("content")
+                if content:
+                    lines.append(f"STEP {step_num}")
+                    lines.append("USER MESSAGE:")
+                    lines.append(content.strip())
+                    lines.append("")
+                    step_num += 1
+
+        return "\n".join(lines).strip()
 
     def _generate_memory_block(
         self,
@@ -475,59 +655,146 @@ class DefaultAgent:
 
         text = response["choices"][0]["message"]["content"].strip()
 
-        missing = [header for header in required_headers if header not in text]
-        if missing:
-            raise ValueError(f"Generated memory missing required headers: {missing}")
+        #missing = [header for header in required_headers if header not in text]
+        #if missing:
+            #raise ValueError(f"Generated memory missing required headers: {missing}")
 
         return text
 
-    def create_exploration_handoff(self) -> str:
+    def create_exploration_handoff(self, phase_to, previous_memory) -> str:
         """
         Generate the exploration -> execution handoff from the current exploration phase.
         """
         transcript = self._build_transcript(start_idx=self.phase_start_idx)
 
-        required_headers = [
-            "ISSUE SUMMARY:",
-            "CURRENT HYPOTHESIS:",
-            "TARGET FILES:",
-            "PATCH PLAN:",
-            "EXPECTED EFFECT:",
-            "VALIDATION PLAN:",
-            "RISKS / UNCERTAINTIES:",
-            "SWITCH REASON:",
-        ]
+        if phase_to == Phase.EXECUTION:
+            required_headers = [
+                "TO PHASE:",
+                "ISSUE SUMMARY:",
+                "CURRENT HYPOTHESIS:",
+                "TARGET FILES:",
+                "PATCH PLAN:",
+                "EXPECTED EFFECT:",
+                "VALIDATION PLAN:",
+                "RISKS / UNCERTAINTIES:",
+                "SWITCH REASON:",
+            ]
 
-        return self._generate_memory_block(
-            self.config.exploration_handoff_write_template,
-            required_headers=required_headers,
-            transcript=transcript,
-        )
+            return self._generate_memory_block(
+                self.config.exploration_to_execution_handoff_template,
+                required_headers=required_headers,
+                distilled_memory=previous_memory,
+                transcript=transcript,
+            )
+        
+        elif phase_to == Phase.TESTING:
+            required_headers = [
+                "TO PHASE:",
+                "ISSUE SUMMARY:",
+                "CURRENT HYPOTHESIS:",
+                "TARGET BEHAVIOR:",
+                "TEST PLAN:",
+                "SUCCESS CRITERIA:",
+                "FAILURE INDICATORS:",
+                "FILES TO MONITOR:",
+                "SWITCH REASON:",
+            ]
+
+            return self._generate_memory_block(
+                self.config.exploration_to_testing_handoff_template,
+                required_headers=required_headers,
+                distilled_memory=previous_memory,
+                transcript=transcript,
+            )
 
 
-    def create_execution_report(self) -> str:
+    def create_execution_report(self, phase_to, previous_memory) -> str:
         """
         Generate the execution -> exploration report from the current execution phase.
         """
         transcript = self._build_transcript(start_idx=self.phase_start_idx)
 
-        required_headers = [
-            "ATTEMPTED PATCH:",
-            "FILES MODIFIED:",
-            "VALIDATION RESULT:",
-            "HYPOTHESIS STATUS:",
-            "KEY OBSERVATIONS:",
-            "IMPLICATIONS:",
-            "NEXT EXPLORATION FOCUS:",
-            "SWITCH REASON:",
-        ]
+        if phase_to == Phase.EXPLORATION:
+            required_headers = [
+                "TO PHASE:",
+                "ATTEMPTED PATCH:",
+                "FILES MODIFIED:",
+                "VALIDATION RESULT:",
+                "HYPOTHESIS STATUS:",
+                "KEY OBSERVATIONS:",
+                "BLOCKING ISSUES:",
+                "RECOMMENDED INVESTIGATION:",
+                "SWITCH REASON:",
+            ]
 
-        return self._generate_memory_block(
-            self.config.execution_report_write_template,
-            required_headers=required_headers,
-            transcript=transcript,
-        )
+            return self._generate_memory_block(
+                self.config.execution_to_exploration_report_template,
+                required_headers=required_headers,
+                distilled_memory=previous_memory,
+                transcript=transcript,
+            )
+        
+        elif phase_to == Phase.TESTING:
+            required_headers = [
+                "TO PHASE:",
+                "FILES MODIFIED:",
+                "CHANGES MADE:",
+                "EXPECTED BEHAVIOR:",
+                "VALIDATION NEEDED:",
+                "REGRESSION RISKS:",
+                "RECOMMENDED TESTS:",
+                "SWITCH REASON",
+            ]
 
+            return self._generate_memory_block(
+                self.config.execution_to_testing_report_template,
+                required_headers=required_headers,
+                distilled_memory=previous_memory,
+                transcript=transcript,
+            )
+
+    def create_testing_report(self, phase_to, previous_memory) -> str:
+        """
+        Generate the execution -> exploration report from the current execution phase.
+        """
+        transcript = self._build_transcript(start_idx=self.phase_start_idx)
+
+        if phase_to == Phase.EXPLORATION:
+            required_headers = [
+                "TO PHASE:",
+                "TESTS EXECUTED:",
+                "PATCH EFFECTIVENESS:",
+                "UNEXPECTED BEHAVIORS:",
+                "KNOWLEDGE GAPS:",
+                "RECOMMENDED INVESTIGATION:",
+                "SWITCH REASON",
+            ]
+
+            return self._generate_memory_block(
+                self.config.testing_to_exploration_report_template,
+                required_headers=required_headers,
+                distilled_memory=previous_memory,
+                transcript=transcript,
+            )
+        
+        elif phase_to == Phase.EXECUTION:
+            required_headers = [
+                "TO PHASE:",
+                "TESTS EXECUTED:",
+                "TEST RESULTS:",
+                "PATCH EFFECTIVENESS:",
+                "IDENTIFIED ISSUES:",
+                "REQUIRED CHANGES:",
+                "VALIDATION APPROACH:",
+                "SWITCH REASON:",
+            ]
+
+            return self._generate_memory_block(
+                self.config.testing_to_execution_report_template,
+                required_headers=required_headers,
+                distilled_memory=previous_memory,
+                transcript=transcript,
+            )
 
     def create_distilled_memory(self, previous_memory: str) -> str:
         """
@@ -552,7 +819,7 @@ class DefaultAgent:
         return self._generate_memory_block(
             self.config.distilled_memory_write_template,
             required_headers=required_headers,
-            memory=previous_memory,
+            existing_memory=previous_memory,
             transcript=transcript,
         )
 
@@ -569,9 +836,7 @@ class DefaultAgent:
             "SEARCHES PERFORMED:",
             "CURRENT HYPOTHESIS:",
             "CANDIDATE PATCH IDEA:",
-            "VALIDATION IDEA:",
-            "OPEN QUESTIONS:",
-            "NEXT EXPLORATION ACTION:",
+            "VALIDATION IDEA:"
         ]
 
         return self._generate_memory_block(

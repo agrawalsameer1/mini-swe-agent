@@ -1,17 +1,73 @@
 agent:
   distilled_memory_write_template: |
-    You are updating the distilled task memory for a coding agent.
+    You are updating the long-term distilled memory for a coding agent.
 
-    This memory contains durable knowledge about the task that should
-    remain useful across multiple exploration and execution phases.
+    The distilled memory stores the most important durable knowledge about the
+    current debugging task. It is shared across multiple exploration and execution phases.
 
-    Only store information that is likely to remain true even if the
-    current hypothesis later changes.
+    Your job is to update the memory using:
+    - the EXISTING DISTILLED MEMORY
+    - the most recent phase transcript
+    - the task description
 
-    Write the updated distilled memory in exactly this format:
+    The goal is to preserve important discoveries while incorporating new
+    confirmed information from the latest phase.
+
+    The memory must remain:
+    - concise
+    - concrete
+    - grounded in actual files, functions, commands, or observed behavior
+
+    ----------------------------
+    UPDATE RULES
+    ----------------------------
+
+    1. Prefer ADDING information rather than removing it.
+
+    2. Only remove or modify existing entries if there is strong evidence
+      that they are incorrect.
+
+    3. When possible, reference:
+      - file paths
+      - functions
+      - classes
+      - test names
+      - commands
+      - observed outputs
+
+    4. Do NOT include speculation unless it is clearly placed under ACTIVE HYPOTHESES.
+
+    5. If a hypothesis has been disproven, move it to INVALIDATED HYPOTHESES
+      rather than deleting it.
+
+    6. Record patch attempts in ATTEMPT LEDGER with short summaries of:
+      - files modified
+      - validation commands
+      - outcome
+
+    7. Avoid vague statements such as:
+      - "the issue might be somewhere in parsing"
+      - "some files seem relevant"
+
+      Instead reference specific code locations when possible.
+
+    8. Do not repeat identical information across sections.
+
+    9. Keep entries short and information-dense.
+
+    10. Preserve information already present in the memory unless it is clearly invalid.
+
+    ----------------------------
+    REQUIRED MEMORY FORMAT
+    ----------------------------
+
+    Write the updated memory in exactly this format:
 
     ISSUE CORE:
-    - Short description of the task or bug.
+    - Short description of the bug and most likely cause(s).
+
+    OBSERVED BEHAVIOR:
+    - Concrete observed behavior such as failing tests, error messages, or incorrect outputs.
 
     CONFIRMED RELEVANT FILES:
     - Files strongly related to the issue.
@@ -31,168 +87,414 @@ agent:
     KNOWN REPRO / VALIDATION COMMANDS:
     - Commands used to reproduce or verify the bug.
 
-    IMPORTANT CONSTRAINTS:
-    - Rules the patch must follow (e.g., do not modify tests).
-
     KEY CODE LOCATIONS:
     - Important functions, classes, or modules related to the issue.
 
-    OPEN RISKS:
-    - Remaining uncertainties that could affect the fix.
+    ----------------------------
+    GUIDANCE
+    ----------------------------
 
-    Rules:
-    - Use exactly these headers in this order.
-    - Store durable facts, not temporary exploration notes.
-    - Do NOT repeat the transcript.
-    - Avoid speculative claims unless labeled as a hypothesis.
-    - Keep entries short and information-dense.
-    - Prefer concrete file paths, functions, and commands.
+    A good distilled memory should allow a new agent to quickly understand:
 
-    PREVIOUS DISTILLED MEMORY:
-    {{memory}}
+    - what the bug is
+    - which files matter
+    - what has already been tried
+    - which hypotheses remain plausible
+    - how to reproduce or validate the issue
 
-    TRANSCRIPT:
+    Do not include conversational text or explanations outside the sections.
+
+    ----------------------------
+    EXISTING DISTILLED MEMORY
+    ----------------------------
+    {{existing_memory}}
+
+    ----------------------------
+    RECENT PHASE TRANSCRIPT
+    ----------------------------
     {{transcript}}
 
-  exploration_handoff_write_template: |
+  # EXPLORATION HANDOFFS
+
+  exploration_to_execution_handoff_template: |
     You are generating the exploration handoff for a coding agent.
 
     Exploration has finished and execution will begin.
 
-    Summarize the exploration results into a concrete patch attempt
-    that execution can immediately try.
+    You have access to:
+    1. the long-term distilled memory
+    2. the EXPLORATION TRANSCRIPT from the most recent exploration phase
 
-    Write the handoff in exactly this format:
+    Your job is to produce a handoff that lets execution attempt exactly ONE concrete patch.
 
-    ISSUE SUMMARY:
-    - Brief description of the bug or task.
+    The handoff must be specific enough that execution can begin editing files immediately,
+    without doing more codebase exploration.
 
-    CURRENT HYPOTHESIS:
-    - Most likely cause of the issue.
-    - Mention specific functions, rules, or logic if known.
+    Write the handoff as a numbered list in exactly this format:
 
-    TARGET FILES:
-    - Source files execution should inspect or modify.
+    1. ...
+    2. ...
+    3. ...
+    ...
 
-    PATCH PLAN:
-    - Concrete edits execution should attempt.
-    - Prefer small, focused modifications.
+    Requirements:
+    - The plan must correspond to exactly ONE patch attempt, based on a single bug hypothesis.
+    - The first step should state the bug hypothesis and the main target file(s).
+    - Edit steps must name specific file paths, functions, classes, or code regions when possible.
+    - The plan should be short and strictly sequential.
+    - Include the validation command(s) needed to check the patch attempt.
+    - Include a final step telling execution when to switch back to exploration.
+    - Prefer the smallest reasonable patch attempt that is well-supported by the transcript.
+    - Use only information supported by the transcript, task description, or distilled memory.
+    - If there is uncertainty, choose the most plausible single patch attempt rather than listing alternatives.
 
-    EXPECTED EFFECT:
-    - What behavior should change if the patch is correct.
+    Do NOT:
+    - include multiple alternative patch strategies
+    - tell execution to do more searching, broad reading, or open-ended investigation
+    - include background explanation outside the numbered list
+    - propose edits without naming the likely file(s)
+    - produce a generic plan that could apply to many repositories
 
-    VALIDATION PLAN:
-    - Commands or checks execution should run to verify the fix.
+    Guidance:
+    - Execution is for making and validating a patch, not for continued exploration.
+    - A good handoff usually contains:
+      1. bug hypothesis + target files
+      2. primary code edit
+      3. any secondary supporting edit
+      4. validation command
+      5. rule for switching back to exploration if validation fails
 
-    RISKS / UNCERTAINTIES:
-    - Important assumptions or unknowns.
-
-    SWITCH REASON:
-    - Why exploration decided a patch attempt should happen now.
-
-    Rules:
-    - Use exactly these headers in this order.
-    - Be concise and technical.
-    - Prefer concrete file paths, functions, and commands.
-    - Do not repeat the transcript.
-    - Do not include narrative reasoning.
+    LONG-TERM DISTILLED MEMORY:
+    {{distilled_memory}}
 
     EXPLORATION TRANSCRIPT:
     {{transcript}}
 
-  execution_report_write_template: |
+  exploration_to_testing_handoff_template: |
+    You are generating the exploration handoff for a coding agent.
+
+    Exploration has finished and testing will begin.
+
+    You have access to:
+    1. the long-term distilled memory
+    2. the EXPLORATION TRANSCRIPT from the most recent exploration phase
+
+    Your job is to produce a handoff that lets testing execute exactly ONE concrete test scenario.
+
+    The handoff must be specific enough that testing can begin running tests immediately,
+    without doing more codebase exploration.
+
+    Write the handoff as a numbered list in exactly this format:
+
+    1. ...
+    2. ...
+    3. ...
+    ...
+
+    Requirements:
+    - The plan must correspond to exactly ONE test scenario, based on a single bug hypothesis.
+    - The first step should state the bug hypothesis and what specific behavior needs testing.
+    - Test steps must name specific test commands, reproduction steps, or validation commands.
+    - The plan should be short and strictly sequential.
+    - Include the expected output or behavior that confirms/denies the hypothesis.
+    - Include a final step telling testing when to switch to execution (if hypothesis confirmed) or exploration (if results are unclear/unexpected).
+    - Prefer the smallest reasonable test scenario that is well-supported by the transcript.
+    - Use only information supported by the transcript, task description, or distilled memory.
+    - If there is uncertainty, choose the most plausible single test scenario rather than listing alternatives.
+
+    Do NOT:
+    - include multiple alternative test strategies
+    - tell testing to do more searching, broad reading, or open-ended investigation
+    - include background explanation outside the numbered list
+    - propose tests without naming the likely commands or steps
+    - produce a generic plan that could apply to many repositories
+
+    Guidance:
+    - Testing is for validating a hypothesis, not for continued exploration.
+    - A good handoff usually contains:
+      1. bug hypothesis + target behavior to test
+      2. primary test command or reproduction steps
+      3. expected output if hypothesis is correct
+      4. expected output if hypothesis is wrong
+      5. rule for switching to execution (if bug confirmed) or exploration (if more investigation needed)
+
+    LONG-TERM DISTILLED MEMORY:
+    {{distilled_memory}}
+
+    EXPLORATION TRANSCRIPT:
+    {{transcript}}
+
+# EXECUTION REPORTS
+
+  execution_to_exploration_report_template: |
     You are generating the execution report for a coding agent.
 
-    Execution has ended and the agent is returning to exploration.
+    Execution has ended and exploration will begin.
 
-    Summarize the results so exploration can quickly decide what to
-    investigate next.
+    You have access to:
+    1. the long-term distilled memory
+    2. the EXECUTION TRANSCRIPT from the most recent execution phase
 
-    Write the report in exactly this format:
+    Your job is to summarize the patch attempt that was just executed and
+    guide the next exploration phase toward the most useful investigation.
 
-    ATTEMPTED PATCH:
-    - Describe the change that was attempted.
+    The report must clearly describe:
+    - what patch was attempted
+    - what edits were made
+    - how the patch was validated
+    - why the result was unsuccessful or inconclusive
+    - what exploration should investigate next
 
-    FILES MODIFIED:
-    - Source files edited during execution.
+    Write the report in exactly the following format:
 
-    VALIDATION RESULT:
-    - Outcome of tests, repro commands, or validation checks.
+    PATCH HYPOTHESIS:
+    Describe the bug hypothesis that execution attempted to fix.
+    Mention the key files, functions, or components involved.
 
-    HYPOTHESIS STATUS:
-    - One of:
-        CONFIRMED
-        PARTIALLY_SUPPORTED
-        INVALIDATED
-        UNCLEAR
+    EDITS MADE:
+    Describe the concrete code changes that were made during execution.
+    Include file paths and relevant functions/classes when possible.
 
-    KEY OBSERVATIONS:
-    - Important behaviors observed during validation.
+    VALIDATION:
+    Describe the validation command(s) that were run and the observed results
+    (test failures, errors, unexpected behavior, or lack of improvement).
 
-    IMPLICATIONS:
-    - What these results suggest about the bug.
+    RESULT:
+    Explain why the patch attempt did not fully resolve the issue or why the
+    outcome remains uncertain.
 
-    NEXT EXPLORATION FOCUS:
-    - What exploration should investigate next.
+    NEXT EXPLORATION STEPS:
+    Provide a numbered list of concrete investigation steps for the exploration phase.
 
-    SWITCH REASON:
-    - Why execution returned to exploration.
+    1. ...
+    2. ...
+    3. ...
+    ...
 
-    Rules:
-    - Use exactly these headers in this order.
-    - Be concise and technical.
-    - Prefer concrete file paths and commands.
-    - Do not repeat the transcript.
+    Requirements:
+    - This report must describe exactly ONE patch attempt.
+    - Use concrete file paths, functions, classes, or symbols when possible.
+    - The NEXT EXPLORATION STEPS should guide exploration toward resolving the
+      uncertainty revealed by the failed attempt.
+    - Each exploration step should be a specific investigation or code-reading action.
+    - The exploration steps should not include code modifications.
+    - Use only information supported by the transcript, task description, or distilled memory.
+    - Keep the report concise and focused.
+
+    Do NOT:
+    - propose a full new patch plan
+    - include multiple unrelated bug theories
+    - instruct exploration to broadly search the entire codebase
+    - include explanation outside the defined sections
+
+    LONG-TERM DISTILLED MEMORY:
+    {{distilled_memory}}
 
     EXECUTION TRANSCRIPT:
     {{transcript}}
 
-  exploration_scratchpad_write_template: |
-    You are updating the exploration scratchpad for a coding agent.
+  execution_to_testing_report_template: |
+    You are generating the execution report for a coding agent.
 
-    This scratchpad tracks temporary working state during the current
-    exploration phase.
+    Execution has ended and testing will begin.
 
-    The scratchpad should help the agent quickly decide the next action
-    or whether to switch to execution.
+    You have access to:
+    1. the long-term distilled memory
+    2. the EXECUTION TRANSCRIPT from the most recent execution phase
 
-    Write the scratchpad in exactly this format:
+    Your job is to summarize the patch that was just implemented and
+    guide the testing phase toward validating it effectively.
 
-    FILES READ THIS PHASE:
-    - ...
+    The report must clearly describe:
+    - what patch was implemented
+    - what edits were made
+    - what behavior should now be tested
+    - what testing should validate
+    - what to do based on test results
 
-    TESTS / REPROS INSPECTED:
-    - ...
+    Write the report in exactly the following format:
 
-    SEARCHES PERFORMED:
-    - ...
+    PATCH HYPOTHESIS:
+    Describe the bug hypothesis that execution attempted to fix.
+    Mention the key files, functions, or components involved.
 
-    CURRENT HYPOTHESIS:
-    - Best current explanation for the bug.
+    EDITS MADE:
+    Describe the concrete code changes that were made during execution.
+    Include file paths and relevant functions/classes when possible.
 
-    CANDIDATE PATCH IDEA:
-    - The patch exploration currently believes execution should try.
+    EXPECTED BEHAVIOR:
+    Describe how the system should behave after this patch.
+    Be specific about what should change or be fixed.
 
-    VALIDATION IDEA:
-    - How execution should test that patch.
+    NEXT TESTING STEPS:
+    Provide a numbered list of concrete test actions for the testing phase.
 
-    OPEN QUESTIONS:
-    - Remaining uncertainties that might affect the patch.
+    1. ...
+    2. ...
+    3. ...
+    ...
 
-    NEXT EXPLORATION ACTION:
-    - What exploration would do if it continues.
+    The final step should specify:
+    - Switch to execution if tests reveal a clear fix/adjustment needed
+    - Switch to exploration if test results are unexpected or require investigation
 
-    Rules:
-    - Use exactly these headers.
-    - Only summarize actions taken in this phase.
-    - Keep entries short and factual.
-    - Do NOT block switching due to uncertainty.
-    - If a plausible patch idea exists, execution should try it.
+    Requirements:
+    - This report must describe exactly ONE patch attempt.
+    - Use concrete file paths, functions, classes, or symbols when possible.
+    - The NEXT TESTING STEPS should validate the specific changes made.
+    - Each testing step should be a specific test command, reproduction step, or validation check.
+    - Include expected outputs or behaviors for both success and failure cases.
+    - The testing steps should not include code modifications or broad investigation.
+    - Use only information supported by the transcript, task description, or distilled memory.
+    - Keep the report concise and focused.
 
-    TASK DESCRIPTION:
-    {{task}}
+    Do NOT:
+    - propose new patches or modifications
+    - include multiple unrelated test scenarios
+    - instruct testing to broadly search the entire codebase
+    - include explanation outside the defined sections
 
-    EXPLORATION TRANSCRIPT:
+    LONG-TERM DISTILLED MEMORY:
+    {{distilled_memory}}
+
+    EXECUTION TRANSCRIPT:
+    {{transcript}}
+
+# TESTING REPORTS
+
+  testing_to_exploration_report_template: |
+    You are generating the testing report for a coding agent.
+
+    Testing has ended and exploration will begin.
+
+    You have access to:
+    1. the long-term distilled memory
+    2. the TESTING TRANSCRIPT from the most recent testing phase
+
+    Your job is to summarize the test results that were just obtained and
+    guide the exploration phase toward investigating the revealed issues.
+
+    The report must clearly describe:
+    - what tests were run
+    - what the results showed
+    - why the results require more investigation
+    - what exploration should investigate next
+
+    Write the report in exactly the following format:
+
+    TEST SCENARIO:
+    Describe what was being tested (bug hypothesis, feature validation, or patch verification).
+    Mention the key files, functions, or components involved.
+
+    TESTS EXECUTED:
+    Describe the concrete test commands, reproduction steps, or validation checks that were run.
+    Include specific test names, scripts, or commands when possible.
+
+    TEST RESULTS:
+    Describe the observed outcomes for each test or validation step.
+    Include pass/fail status, error messages, unexpected outputs, or behaviors.
+
+    OUTCOME ASSESSMENT:
+    Explain why the test results require exploration rather than immediate execution.
+    This could be due to: unexpected failures, unclear root cause, contradictory evidence,
+    or discovery of new edge cases.
+
+    NEXT EXPLORATION STEPS:
+    Provide a numbered list of concrete investigation steps for the exploration phase.
+
+    1. ...
+    2. ...
+    3. ...
+    ...
+
+    Requirements:
+    - This report must describe exactly ONE testing session.
+    - Use concrete test commands, file paths, functions, or error messages when possible.
+    - The NEXT EXPLORATION STEPS should guide exploration toward understanding why tests
+      failed or produced unexpected results.
+    - Each exploration step should be a specific investigation or code-reading action.
+    - The exploration steps should not include code modifications or test execution.
+    - Use only information supported by the transcript, task description, or distilled memory.
+    - Keep the report concise and focused.
+
+    Do NOT:
+    - propose patches or code modifications
+    - include multiple unrelated investigation paths
+    - instruct exploration to broadly search the entire codebase
+    - include explanation outside the defined sections
+
+    LONG-TERM DISTILLED MEMORY:
+    {{distilled_memory}}
+
+    TESTING TRANSCRIPT:
+    {{transcript}}
+
+  testing_to_execution_report_template: |
+    You are generating the testing report for a coding agent.
+
+    Testing has ended and execution will begin.
+
+    You have access to:
+    1. the long-term distilled memory
+    2. the TESTING TRANSCRIPT from the most recent testing phase
+
+    Your job is to summarize the test results that were just obtained and
+    guide the execution phase toward making the necessary fix.
+
+    The report must clearly describe:
+    - what tests were run
+    - what the results showed
+    - what specific issue was identified
+    - what fix execution should implement
+
+    Write the report in exactly the following format:
+
+    TEST SCENARIO:
+    Describe what was being tested (bug hypothesis, feature validation, or patch verification).
+    Mention the key files, functions, or components involved.
+
+    TESTS EXECUTED:
+    Describe the concrete test commands, reproduction steps, or validation checks that were run.
+    Include specific test names, scripts, or commands when possible.
+
+    TEST RESULTS:
+    Describe the observed outcomes for each test or validation step.
+    Include pass/fail status, error messages, unexpected outputs, or behaviors.
+
+    IDENTIFIED ISSUE:
+    Explain the specific problem that testing revealed.
+    Be concrete about what is broken, missing, or incorrect.
+
+    NEXT EXECUTION STEPS:
+    Provide a numbered list of concrete implementation steps for the execution phase.
+
+    1. ...
+    2. ...
+    3. ...
+    ...
+
+    The final step should specify how to validate the fix and when to switch back to testing, or when to switch back to exploration if this is needed.
+
+    Requirements:
+    - This report must describe exactly ONE testing session leading to ONE clear fix.
+    - Use concrete test commands, file paths, functions, or error messages when possible.
+    - The NEXT EXECUTION STEPS should guide execution toward implementing a specific fix.
+    - Each execution step should be a specific code modification or validation action.
+    - Include the validation approach to verify the fix works.
+    - The execution steps should not include broad investigation or exploration.
+    - Use only information supported by the transcript, task description, or distilled memory.
+    - Keep the report concise and focused.
+
+    Do NOT:
+    - propose multiple alternative fixes
+    - include unrelated code changes
+    - instruct execution to search or investigate broadly
+    - include explanation outside the defined sections
+
+    LONG-TERM DISTILLED MEMORY:
+    {{distilled_memory}}
+
+    TESTING TRANSCRIPT:
     {{transcript}}
 
   execution_scratchpad_write_template: |
@@ -370,16 +672,576 @@ agent:
     {{rolling_summary}}
   
   exploration_system_template: |
-    Immediately call the switch_phase tool with phase="execution". Use reason "smoke test"
+    You are a helpful assistant that can interact with a computer shell to solve programming tasks.
 
   exploration_instance_template: |
-    Switch to execution immediately.
+    exploration_instance_template: |
+    <pr_description>
+    Consider the following PR description:
+    {{task}}
+    </pr_description>
+
+    <instructions>
+    # EXPLORATION PHASE
+
+    You are currently in the **EXPLORATION phase**.
+
+    Your goal: **Find the bug location**, form a hypothesis, then **switch immediately**.
+
+    Switch to:
+    - **EXECUTION** if you know what code to change
+    - **TESTING** if you need to validate/reproduce something
+
+    ## Your responsibilities:
+
+    - Read relevant code to locate the issue
+    - Identify target files and functions
+    - Form a hypothesis about the bug cause
+    - DO NOT modify source files (that's EXECUTION)
+    - DO NOT run tests (that's TESTING)
+
+    **Switch as soon as you have a hypothesis and know the next step.**
+
+    ## When to switch:
+
+    Switch to **EXECUTION** when:
+    - You know what file/function needs to be changed
+    - You have a specific code fix in mind
+
+    Switch to **TESTING** when:
+    - You need to reproduce the issue first
+    - You want to validate a hypothesis before fixing
+    - You need to see the actual behavior
+
+    **Exploration phases should be SHORT (3-8 commands typically).**
+
+    **Don't read the entire codebase. Find the likely issue, form a hypothesis, switch.**
+
+    </instructions>
+
+    <memory_system>
+    # Memory System
+
+    The agent maintains two forms of memory.
+
+    ## Distilled Memory (long-term)
+
+    This contains durable knowledge discovered during previous phases, such as:
+
+    - confirmed relevant files
+    - invalidated hypotheses
+    - previous patch attempts
+    - test results
+    - reproduction commands
+    - important code locations
+
+    Treat distilled memory as reliable prior knowledge.
+
+    ## Phase Handoff Report (from previous phase)
+
+    If present, the handoff report summarizes results from the previous phase:
+
+    ### From Execution:
+    - the patch that was attempted
+    - edits made
+    - validation results
+    - why the attempt failed or requires testing
+    - what exploration should investigate next
+
+    ### From Testing:
+    - what tests were run
+    - test results and observations
+    - why results require more investigation
+    - what exploration should examine next
+
+    If a handoff report is present, **treat it as high-priority information**.
+    The current exploration phase should focus on resolving the uncertainty described there.
+
+    </memory_system>
+
+    ## Important Boundaries
+
+    MODIFY:
+    - Regular source files inside `/testbed` (this is the working directory for all your subsequent commands)
+
+    DO NOT MODIFY:
+    - tests
+    - configuration files (`pyproject.toml`, `setup.cfg`, etc.)
+
+    During exploration you normally should **not modify files**.
+
+    Edits are allowed only for **tiny probes or instrumentation** if absolutely necessary.
+
+    ## Command Execution Rules
+
+    In each response, do **exactly one** of the following:
+
+    1. CONTINUE_EXPLORATION
+      - include a brief **THOUGHT** section explaining your reasoning and what you're trying to accomplish
+      - include one or more **bash tool calls**
+
+    2. SWITCH_TO_EXECUTION or SWITCH_TO_TESTING
+      - call the phase switch tool immediately
+      - do **not** run additional commands after switching
+
+    Important rules:
+
+    - Do not repeat a command already run in this phase unless you have a specific new reason.
+    - Do not run "just one more check" if it would not change the patch plan.
+    - If a file has already been identified and you have a plausible edit in mind, **switch to execution**.
+    - If you know what behavior to test, **switch to testing**.
+    - Your response SHOULD include reasoning text explaining what you're doing
+    - Your response MUST include AT LEAST ONE bash tool call when continuing exploration. You can make MULTIPLE tool calls in a single response when the commands are independent (e.g., searching multiple files, reading different parts of the codebase).
+
+    ## Environment Behavior
+
+    The environment works as follows:
+
+    1. You issue command(s)
+    2. The system executes them in a subshell
+    3. You observe the results
+    4. You either continue exploration or switch phases
+
+    Important details:
+
+    - Directory changes are **NOT persistent** between commands
+    - Each command runs in a **new shell**
+    - Use `cd /path && command` when needed
+    - However, you can prefix any action with `MY_ENV_VAR=MY_VALUE cd /path/to/working/dir && ...` or write/load environment variables from files
+
+    ## Example Continue Response
+
+    THOUGHT:
+    I still need to inspect the rule implementation to identify the likely condition causing the false positive.
+
+    TOOL CALLS:
+    cd /testbed && sed -n '1,220p' src/module/file.py
+
+    ## Example Switch Response
+
+    TOOL CALLS:
+    switch phase
+
+    ## Environment Details
+
+    - Full Linux shell available
+    - Avoid interactive programs (`vim`, `nano`, etc.)
+    - Use non-interactive flags (`-y`, `-f`)
+    - You may install tools if necessary
+
+    ## Submission Instructions
+
+    When you've completed your work and validated the fix, you MUST submit your changes as a git patch.
+    Follow these steps IN ORDER, with SEPARATE commands:
+
+    Step 1: Create the patch file
+
+    Run:
+
+    git diff -- path/to/file1 path/to/file2 > patch.txt
+
+    Include **only the source files you modified**.
+
+    Do NOT include:
+
+    - tests
+    - helper scripts
+    - build or configuration files
+    - binaries
+
+    <IMPORTANT>
+    The patch must only contain changes to the specific source files you modified to fix the issue.
+    Do not submit file creations or changes to any of the following files:
+
+    - test and reproduction files
+    - helper scripts, tests, or tools that you created
+    - installation, build, packaging, configuration, or setup scripts unless they are directly part of the issue you were fixing (you can assume that the environment is already set up for your client)
+    - binary or compiled files
+    </IMPORTANT>
+
+    Step 2: Verify the patch
+
+    Inspect `patch.txt` to confirm it contains only intended changes and headers show `--- a/` and `+++ b/` paths.
+
+    Step 3: Submit
+
+    You MUST use this EXACT command to submit:
+
+    ```bash
+    echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt
+    ```
+
+    If the command fails, the submission will not be recorded.
+
+    <CRITICAL>
+    - Creating/viewing the patch and submitting it MUST be separate commands (not combined with &&).
+    - If you modify patch.txt after verifying, you SHOULD verify again before submitting.
+    - You CANNOT continue working (reading, editing, testing) in any way on this task after submitting.
+    </CRITICAL>
+
+    After submission you must stop working on the task.
+
+    </instructions>
 
   execution_system_template: |
-    Immediately call the switch_phase tool with phase="exploration". Use reason "smoke test"
+    You are a helpful assistant that can interact with a computer shell to solve programming tasks.
 
   execution_instance_template: |
-    Switch to exploration immediately.
+    <pr_description>
+    Consider the following PR description:
+    {{task}}
+    </pr_description>
+
+    <instructions>
+    # EXECUTION PHASE
+
+    You are currently in the **EXECUTION phase**.
+
+    Your goal: **Make the code changes** described in the phase handoff, then **switch immediately**.
+
+    The phase handoff contains a step-by-step plan from the previous phase.
+
+    **Follow the handoff, make the edits, then switch to TESTING or EXPLORATION.**
+
+    ## Your responsibilities:
+
+    - Implement the code changes described in the handoff
+    - Make the specific edits to the target files
+    - DO NOT run tests or validation (that's for TESTING phase)
+    - DO NOT investigate or explore (that's for EXPLORATION phase)
+
+    **Switch as soon as the code changes are made.**
+
+    ## When to switch:
+
+    Switch to **TESTING** when:
+    - You've made the code changes (even if just one small edit)
+    - The handoff says to validate (let testing do that)
+
+    Switch to **EXPLORATION** when:
+    - You can't find the file/function mentioned in the handoff
+    - The code structure is different than expected
+    - You need to understand something before editing
+
+    **Make the edit, then switch. Don't try to do everything in one phase.**
+
+    </instructions>
+
+    <memory_system>
+    # Memory System
+
+    ## Distilled Memory (long-term)
+    Durable knowledge from previous phases:
+    - confirmed relevant files
+    - invalidated hypotheses  
+    - previous patch attempts
+    - test results
+    - reproduction commands
+
+    ## Phase Handoff (from previous phase)
+
+    ### From Exploration:
+    - bug hypothesis
+    - target file(s) and functions
+    - planned code edits
+
+    ### From Testing:
+    - what tests revealed
+    - specific issue identified
+    - required code changes
+
+    **Follow the handoff closely.**
+
+    </memory_system>
+
+    ## Important Boundaries
+
+    - MODIFY: Regular source code files in /testbed
+    - DO NOT MODIFY: Tests, configuration files
+    - DO NOT RUN: Test suites (that's for TESTING phase)
+
+    ## Command Execution Rules
+
+    **THOUGHT:**
+    [Brief explanation of what edit you're making]
+
+    **TOOL CALLS:**
+    [Your edit command(s)]
+
+    OR
+
+    **TOOL CALLS:**
+    switch phase
+
+    **Rules:**
+    - Make edits quickly
+    - Don't validate your own changes (switch to TESTING for that)
+    - Don't search or investigate (switch to EXPLORATION for that)
+    - Response MUST include AT LEAST ONE tool call
+    - Can make MULTIPLE edit commands in one response
+    - After edits are done, switch immediately
+
+    ## Environment
+
+    - Commands run in subshell
+    - Use `cd /path && command` for directory changes
+    - Can set environment variables: `MY_VAR=value cd /path && command`
+
+    ## Example Flow
+
+    **THOUGHT:**
+    Implementing the null check in validate_input function.
+
+    **TOOL CALLS:**
+    cd /testbed && sed -i '45i\    if input is None:\n        return False' src/validator.py
+
+    [Next response should be:]
+
+    **TOOL CALLS:**
+    switch phase
+  
+    ## Submission Instructions
+
+    When you've completed your work and validated the fix, you MUST submit your changes as a git patch.
+    Follow these steps IN ORDER, with SEPARATE commands:
+
+    Step 1: Create the patch file
+
+    Run:
+
+    git diff -- path/to/file1 path/to/file2 > patch.txt
+
+    Include **only the source files you modified**.
+
+    Do NOT include:
+
+    - tests
+    - helper scripts
+    - build or configuration files
+    - binaries
+
+    <IMPORTANT>
+    The patch must only contain changes to the specific source files you modified to fix the issue.
+    Do not submit file creations or changes to any of the following files:
+
+    - test and reproduction files
+    - helper scripts, tests, or tools that you created
+    - installation, build, packaging, configuration, or setup scripts unless they are directly part of the issue you were fixing (you can assume that the environment is already set up for your client)
+    - binary or compiled files
+    </IMPORTANT>
+
+    Step 2: Verify the patch
+
+    Inspect `patch.txt` to confirm it contains only intended changes and headers show `--- a/` and `+++ b/` paths.
+
+    Step 3: Submit
+
+    You MUST use this EXACT command to submit:
+
+    ```bash
+    echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt
+    ```
+
+    If the command fails, the submission will not be recorded.
+
+    <CRITICAL>
+    - Creating/viewing the patch and submitting it MUST be separate commands (not combined with &&).
+    - If you modify patch.txt after verifying, you SHOULD verify again before submitting.
+    - You CANNOT continue working (reading, editing, testing) in any way on this task after submitting.
+    </CRITICAL>
+
+    After submission you must stop working on the task.
+
+    </instructions>
+
+  testing_system_template: |
+    You are a helpful assistant that can interact with a computer shell to solve programming tasks.
+
+  testing_instance_template: |
+    # TESTING PHASE
+
+    You are currently in the **TESTING phase**.
+
+    Your goal: **Run the test** described in the phase handoff, observe results, then **switch immediately**.
+
+    The phase handoff contains a step-by-step test plan from the previous phase.
+
+    When you have completed the test scenario, you must switch phases using the `switch_phase` tool:
+    - Switch to **EXECUTION** if test results reveal a clear fix to implement
+    - Switch to **EXPLORATION** if test results are unexpected or require code investigation
+
+    Testing should be **focused and decisive**. Do not run the same tests repeatedly
+    or seek excessive confirmation before switching phases.
+
+    </instructions>
+
+    <memory_system>
+    # Memory System
+
+    The agent maintains two forms of memory.
+
+    ## Distilled Memory (long-term)
+
+    This contains durable knowledge discovered during previous phases, such as:
+
+    - confirmed relevant files
+    - invalidated hypotheses
+    - previous patch attempts
+    - test results
+    - reproduction commands
+    - important code locations
+
+    Distilled memory helps avoid repeating the same tests.
+
+    ## Phase Handoff (from previous phase)
+
+    The phase handoff contains the **test plan** produced during the
+    previous phase.
+
+    ### From Exploration:
+    - the bug hypothesis to validate
+    - the specific behavior to test
+    - the test commands or reproduction steps
+    - expected outputs for success/failure
+
+    ### From Execution:
+    - the patch that was implemented
+    - what behavior should now be tested
+    - validation steps to verify the fix
+    - what to check for regressions
+
+    Treat the phase handoff as the **primary guide for this phase**.
+
+    Follow the handoff steps closely when executing tests.
+
+    </memory_system>
+
+    ## Important Boundaries
+
+    - RUN: Test commands, reproduction scripts, validation checks
+    - READ: Test output, error messages, logs (when needed to interpret results)
+    - DO NOT MODIFY: Source files in /testbed (this is the working directory for all your subsequent commands), tests, configuration files
+
+    You may create temporary test scripts or minimal reproduction cases if specified in the handoff.
+
+    ## Command Execution Rules
+
+    In each response, do **exactly one** of the following:
+
+    1. CONTINUE_TESTING
+      - include a brief **THOUGHT** section explaining your reasoning and what you're trying to accomplish
+      - include one or more **bash tool calls**
+
+    2. SWITCH_TO_EXPLORATION or SWITCH_TO_EXECUTION
+      - call the phase switch tool immediately
+      - do **not** run additional commands after switching
+
+    Important rules:
+
+    - Do not run the same test multiple times without a specific reason.
+    - Do not inspect source files during testing.
+    - If test results clearly indicate the next step, **switch phases**.
+    - If you need to understand why something happens, **switch to exploration**.
+    - If you know what to change, **switch to execution**.
+    - Your response SHOULD include reasoning text explaining what you're doing
+    - Your response MUST include AT LEAST ONE bash tool call when continuing testing. You can make MULTIPLE tool calls in a single response when the commands are independent.
+
+    ## Environment Behavior
+
+    Commands execute in a subshell.
+
+    Important details:
+
+    - Directory changes are **NOT persistent** between commands
+    - Each command runs in a **new shell**
+    - Use `cd /path && command`
+    - However, you can prefix any action with `MY_ENV_VAR=MY_VALUE cd /path/to/working/dir && ...` or write/load environment variables from files
+
+    ## Example Continue Response
+
+    THOUGHT:
+    I need to test the edge case where the input is empty to see if the bug occurs there too.
+
+    TOOL CALLS:
+    cd /testbed && python -c "from module import function; print(function(''))"
+
+    ## Example Switch Response
+
+    TOOL CALLS:
+    switch phase
+
+    ## Environment Details
+
+    - Linux shell environment
+    - Avoid interactive programs
+    - Use non-interactive flags (`-y`, `-f`)
+    - Tools may be installed if necessary
+
+    ## After Testing
+
+    When test results are clear, switch phases immediately.
+
+    Do not linger in testing to "double-check" or "be thorough".
+
+    Let exploration investigate implementation.
+
+    Let execution make changes.
+
+    Testing is only for observing behavior.
+
+    ## Submission Instructions
+
+    When you've completed your work and validated the fix, you MUST submit your changes as a git patch.
+    Follow these steps IN ORDER, with SEPARATE commands:
+
+    Step 1: Create the patch file
+
+    Run:
+
+    git diff -- path/to/file1 path/to/file2 > patch.txt
+
+    Include **only the source files you modified**.
+
+    Do NOT include:
+
+    - tests
+    - helper scripts
+    - build or configuration files
+    - binaries
+
+    <IMPORTANT>
+    The patch must only contain changes to the specific source files you modified to fix the issue.
+    Do not submit file creations or changes to any of the following files:
+
+    - test and reproduction files
+    - helper scripts, tests, or tools that you created
+    - installation, build, packaging, configuration, or setup scripts unless they are directly part of the issue you were fixing (you can assume that the environment is already set up for your client)
+    - binary or compiled files
+    </IMPORTANT>
+
+    Step 2: Verify the patch
+
+    Inspect `patch.txt` to confirm it contains only intended changes and headers show `--- a/` and `+++ b/` paths.
+
+    Step 3: Submit
+
+    You MUST use this EXACT command to submit:
+
+    ```bash
+    echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt
+    ```
+
+    If the command fails, the submission will not be recorded.
+
+    <CRITICAL>
+    - Creating/viewing the patch and submitting it MUST be separate commands (not combined with &&).
+    - If you modify patch.txt after verifying, you SHOULD verify again before submitting.
+    - You CANNOT continue working (reading, editing, testing) in any way on this task after submitting.
+    </CRITICAL>
+
+    After submission you must stop working on the task.
+
+    </instructions>
 
   system_template: |
     You are a helpful assistant that can interact with a computer shell to solve programming tasks.
@@ -491,7 +1353,7 @@ agent:
     - You CANNOT continue working (reading, editing, testing) in any way on this task after submitting.
     </CRITICAL>
     </instructions>
-  step_limit: 70
+  step_limit: 300
   cost_limit: 3.
   phase_recent_message_window: 4
 

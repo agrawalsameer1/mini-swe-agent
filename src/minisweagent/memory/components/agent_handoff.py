@@ -32,7 +32,13 @@ class AgentHandoff:
         elif phase == Phase.EXECUTION:
             self.header = (
                 "=== CURRENT OBJECTIVE ===\n"
-                "Execute the patch plan identified during exploration and validate the fix.\n\n"
+                "Execute the patch plan identified during exploration.\n\n"
+            )
+        
+        elif phase == Phase.TESTING:
+            self.header = (
+                "=== CURRENT OBJECTIVE ===\n"
+                "Evaluate the fix using tests.\n\n"
             )
 
         else:
