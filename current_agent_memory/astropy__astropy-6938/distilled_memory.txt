@@ -1,0 +1,51 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **File:** `astropy/io/fits/fitsrec.py`
+- **Function:** `FITS_rec._scale_back_ascii` (lines 1196–1264)
+- **Logic:** The bug is located at the end of the `_scale_back_ascii` method, specifically at line 1264.
+- **Context:** This method converts internal array values back to ASCII table representations for FITS writing. For columns with a 'D' format (double precision ASCII), it is supposed to replace the 'E' exponent separator with 'D'.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism:** In `_scale_back_ascii`, the code attempts to replace the exponent separator using `output_field.replace(encode_ascii('E'), encode_ascii('D'))`. However, `output_field` is a `numpy.chararray` (or similar), and its `replace` method returns a *new* array rather than performing the replacement in-place. Since the return value is not assigned back to the `output_field` slice, the change is lost.
+- **Hypothesis:** Assigning the result of the replace operation back to the `output_field` slice (e.g., `output_field[:] = output_field.replace(...)`) will correctly update the data before it is written to the FITS file.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+- **Reproduction Script:**
+```python
+import numpy as np
+from astropy.io import fits
+import os
+
+filename = 'test_d_format.fits'
+if os.path.exists(filename):
+    os.remove(filename)
+
+# Create an ASCII table with a 'D' format column
+col = fits.Column(name='a', format='D20.10', array=np.array([1.23e100]))
+hdu = fits.TableHDU.from_columns([col])
+hdu.writeto(filename)
+
+# Read the file back as raw bytes to check for 'D'
+with open(filename, 'rb') as f:
+    content = f.read()
+    if b'E+100' in content:
+        print("Bug confirmed: Found 'E+100' instead of 'D+100'")
+    elif b'D+100' in content:
+        print("Bug not found: Found 'D+100'")
+    else:
+        print("Could not find exponent in output")
+
+if os.path.exists(filename):
+    os.remove(filename)
+```
+- **Execution Command:**
+  `/opt/miniconda3/envs/testbed/bin/python reproduce_bug.py`
+
+# FAILED PATCH ATTEMPTS
+
+- No patch attempts have been made yet.

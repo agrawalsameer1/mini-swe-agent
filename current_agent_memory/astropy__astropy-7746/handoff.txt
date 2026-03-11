@@ -1,0 +1,64 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `WCS._array_converter` method in `astropy/wcs/wcs.py` fails to handle empty input coordinates (lists or numpy arrays) before passing them to the underlying WCSLIB C extension. WCSLIB returns an `InconsistentAxisTypesError` (ERROR 4) when the number of coordinates is zero. The fix involves short-circuiting the transformation logic when empty inputs are detected.
+
+2. **Primary Target File**: `astropy/wcs/wcs.py`
+   - **Target Method**: `WCS._array_converter` (around line 1252).
+
+3. **Logic Changes**:
+   - In the `len(args) == 2` block (handling a single 2D array of coordinates):
+     - After `xy = np.asarray(xy)`, check if `xy.shape[0] == 0`.
+     - If it is empty, return an empty numpy array of shape `(0, self.naxis)` immediately, avoiding the call to `_return_single_array`.
+   - In the `len(args) == self.naxis + 1` block (handling multiple 1D arrays/lists):
+     - After `axes = [np.asarray(x) for x in axes]`, check if the first axis `axes[0]` has a length of 0.
+     - If it is empty, return a list of `self.naxis` empty numpy arrays (e.g., `[np.array([], float) for i in range(self.naxis)]`) immediately, avoiding the call to `_return_list_of_arrays`.
+
+4. **Implementation Details**:
+   - Ensure the check for the 2D array case is placed **before** the `return _return_single_array(xy, origin)` statement.
+   - Ensure the check for the 1D array case is placed **before** the `return _return_list_of_arrays(axes, origin)` statement.
+
+5. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Create and run a reproduction script `reproduce_all.py` with the following content:
+```python
+import numpy as np
+from astropy.wcs import WCS
+import sys
+
+try:
+    wcs = WCS(naxis=2)
+    wcs.wcs.ctype = ["RA---TAN", "DEC--TAN"]
+    wcs.wcs.crpix = [0, 0]
+    wcs.wcs.crval = [0, 0]
+    wcs.wcs.cdelt = [1, 1]
+
+    print("1. Testing empty lists...")
+    ra, dec = wcs.wcs_pix2world([], [], 0)
+    print(f"   Result: ra={ra}, dec={dec}")
+    assert len(ra) == 0 and len(dec) == 0
+
+    print("2. Testing empty 1D numpy arrays...")
+    ra, dec = wcs.wcs_pix2world(np.array([]), np.array([]), 0)
+    print(f"   Result: ra={ra}, dec={dec}")
+    assert len(ra) == 0 and len(dec) == 0
+
+    print("3. Testing empty 2D numpy array (shape 0, 2)...")
+    res = wcs.wcs_pix2world(np.zeros((0, 2)), 0)
+    print(f"   Result shape: {res.shape}")
+    assert res.shape == (0, 2)
+
+    print("All tests passed!")
+except Exception as e:
+    print(f"Test failed with error: {e}")
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+```
+- Run the existing WCS tests to ensure no regressions:
+  - `pytest astropy/wcs/tests/test_wcs.py`
+- Verify the fix against the original reported issue:
+  - `python -c "from astropy.wcs import WCS; wcs = WCS(naxis=2); wcs.wcs_pix2world([], [], 0)"` (should not raise `InconsistentAxisTypesError`)

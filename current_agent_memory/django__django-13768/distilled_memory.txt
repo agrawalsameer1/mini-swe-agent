@@ -1,0 +1,57 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/dispatch/dispatcher.py**: Contains the `Signal` class and the `send_robust` method. This is where the exception handling logic resides and where logging needs to be added.
+- **tests/dispatch/tests.py**: Contains existing tests for the dispatch mechanism, including `test_send_robust_fail`.
+- **tests/dispatch/test_robust_logging.py**: A new test file created during exploration to specifically validate that `send_robust` logs exceptions at the `ERROR` level.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- The `Signal.send_robust` method iterates through receivers and wraps each call in a `try...except Exception` block.
+- While it catches exceptions and returns them in the response list (to prevent the signal chain from breaking), it currently does **not** log these exceptions.
+- This makes it difficult for developers to notice when a receiver is failing silently during a `send_robust` call, especially if they are not manually inspecting the returned list of tuples.
+- The goal is to add `logger.error()` calls within the `except` block of `send_robust` to provide visibility into these failures, similar to how other robust mechanisms in Django (like template tags or middleware) might handle errors.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+### Environment Setup
+The following dependencies must be installed to run the tests:
+```bash
+pip install asgiref pytz sqlparse
+export PYTHONPATH=$PYTHONPATH:.
+```
+
+### Reproduction Script
+A test case was created at `tests/dispatch/test_robust_logging.py`:
+```python
+import logging
+from django.dispatch import Signal
+from django.test import SimpleTestCase
+
+class RobustLoggingTests(SimpleTestCase):
+    def test_send_robust_logs_exception(self):
+        def receiver_fails(signal, **kwargs):
+            raise ValueError("Test exception")
+
+        my_signal = Signal()
+        my_signal.connect(receiver_fails)
+
+        with self.assertLogs('django.dispatch', level='ERROR') as cm:
+            my_signal.send_robust(sender=None)
+        
+        self.assertEqual(len(cm.output), 1)
+        self.assertIn("Error calling <function RobustLoggingTests.test_send_robust_logs_exception.<locals>.receiver_fails", cm.output[0])
+        self.assertIn("ValueError: Test exception", cm.output[0])
+```
+
+### Execution Command
+```bash
+python3 ./tests/runtests.py dispatch.test_robust_logging
+```
+**Current Status**: Fails with `AssertionError: no logs of level ERROR or higher triggered on django.dispatch`.
+
+# FAILED PATCH ATTEMPTS
+
+- No patch attempts have been made yet. The task is currently at the transition from exploration to execution.

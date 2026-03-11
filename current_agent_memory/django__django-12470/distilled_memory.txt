@@ -1,0 +1,72 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+=== DISTILLED TASK MEMORY ===
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/models/sql/compiler.py**: Contains `SQLCompiler.find_ordering_name`. This method is responsible for resolving ordering strings into `OrderBy` expressions. It handles recursive resolution for relations and inherited models.
+- **django/db/models/sql/query.py**: Contains `get_order_dir`, which splits an ordering string (like `'-pk'`) into the field name and a direction string (`'ASC'` or `'DESC'`).
+- **django/db/models/options.py**: Defines how `Meta.ordering` is stored and accessed on models.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug is a "double inversion" of sort direction during recursive resolution of the primary key (`pk`) in inherited models.
+
+1.  **Initial Call**: `find_ordering_name("-pk", Child._meta, default_order="ASC")` is called.
+2.  **Direction Parsing**: `get_order_dir("-pk", "ASC")` correctly identifies the field as `pk` and the direction as `DESC`.
+3.  **Relation Handling**: In multi-table inheritance, `pk` on the `Child` is a `OneToOneField` (relation) to the `Parent`. The code enters the block for handling relations.
+4.  **Recursive Call**: It attempts to resolve the ordering of the related model (the parent). It calls `find_ordering_name` again using the parent's `Meta.ordering` (which is `["-pk"]`) and passes the current direction (`DESC`) as the new `default_order`.
+5.  **The Bug**: Inside the recursive call for `Parent`, `get_order_dir("-pk", "DESC")` is executed. Because the `default_order` is already `DESC` and the string starts with `-`, it flips the direction back to `ASC`.
+6.  **Result**: The query is generated with `ORDER BY ... ASC`, even though the user specified `-pk`.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+### Reproduction Script (`run_repro.py`)
+```python
+import os
+import django
+from django.conf import settings
+
+if not settings.configured:
+    settings.configure(
+        DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}},
+        INSTALLED_APPS=['repro_app'],
+    )
+    django.setup()
+
+from django.db import models
+
+# Define models
+class Parent(models.Model):
+    class Meta:
+        app_label = 'repro_app'
+        ordering = ["-pk"]
+
+class Child(Parent):
+    class Meta:
+        app_label = 'repro_app'
+
+# Check the generated SQL
+print(Child.objects.all().query)
+```
+
+### Execution
+```bash
+python3 run_repro.py
+```
+**Expected Output**: Contains `ORDER BY "repro_app_parent"."id" DESC`
+**Actual Output**: Contains `ORDER BY "repro_app_parent"."id" ASC`
+
+# FAILED PATCH ATTEMPTS
+
+### Attempt 1: Manual Reversal in `find_ordering_name`
+```python
+# In django/db/models/sql/compiler.py
+rel_results = self.find_ordering_name(item, opts, alias, "ASC", already_seen)
+if descending:
+    for expr, is_ref in rel_results:
+        expr.reverse_ordering()
+results.extend(rel_results)
+```
+**Result**: FAILED. The reproduction script still produced `ASC`. This approach failed because it attempted to hardcode "ASC" as the default for the recursive call but did not correctly handle the interaction with `get_order_dir`'s internal logic or the way `OrderBy` objects are constructed and returned. The logic in `find_ordering_name` is complex regarding how it propagates the `descending` flag to the final `OrderBy` constructor.

@@ -1,0 +1,57 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- `astropy/wcs/wcs.py`: Contains the `WCS` class and its transformation methods.
+- `astropy/wcs/wcs.py:1252`: `_array_converter` helper method. This is the primary entry point for coordinate transformations and where input validation/short-circuiting for empty inputs must occur.
+- `astropy/wcs/wcs.py:1225`: `_return_list_of_arrays` helper method.
+- `astropy/wcs/wcs.py:1238`: `_return_single_array` helper method.
+- `astropy/extern/configobj/configobj.py`: Required patching for Python 3.11 compatibility (`collections.abc.Mapping`).
+- `astropy/io/fits/header.py`: Required patching for Python 3.11 compatibility (`collections.abc.MutableSequence`).
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism**: When `wcs_pix2world` (and other WCS methods) receives empty lists or zero-length numpy arrays, the data is passed to the underlying C extension (WCSLIB). WCSLIB returns `ERROR 4 (wcsp2s)` or similar because it expects `ncoord > 0`.
+- **Hypothesis**: The Python wrapper `_array_converter` must detect empty inputs (both 1-D lists/arrays and 2-D arrays) and return an appropriately shaped empty result before the C call is made.
+- **Validation Insight**: The check for empty 2-D arrays must be placed *before* the call to `_return_single_array` in `_array_converter`. In previous attempts, placing it after the `return` statement made it unreachable, leading to continued failures for 2-D inputs.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+### Comprehensive Reproduction Script (`reproduce_all.py`)
+```python
+import numpy as np
+from astropy.wcs import WCS
+import sys
+
+try:
+    wcs = WCS(naxis=2)
+    wcs.wcs.ctype = ["RA---TAN", "DEC--TAN"]
+    wcs.wcs.crpix = [0, 0]
+    wcs.wcs.crval = [0, 0]
+    wcs.wcs.cdelt = [1, 1]
+
+    print("1. Testing empty lists...")
+    ra, dec = wcs.wcs_pix2world([], [], 0)
+    assert len(ra) == 0 and len(dec) == 0
+
+    print("2. Testing empty 1D numpy arrays...")
+    ra, dec = wcs.wcs_pix2world(np.array([]), np.array([]), 0)
+    assert len(ra) == 0 and len(dec) == 0
+
+    print("3. Testing empty 2D numpy array (shape 0, 2)...")
+    res = wcs.wcs_pix2world(np.zeros((0, 2)), 0)
+    assert res.shape == (0, 2)
+
+    print("All tests passed!")
+except Exception as e:
+    print(f"Test failed with error: {e}")
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+```
+
+# FAILED PATCH ATTEMPTS
+
+- **Attempt 1**: Added checks in `_array_converter` but placed the 2-D array check (`if xy.shape[0] == 0`) *after* the `return _return_single_array(xy, origin)` statement. This rendered the fix unreachable for 2-D inputs, resulting in `astropy.wcs._wcs.InconsistentAxisTypesError: ERROR 4 in wcsp2s()`. The logic for multiple 1-D arrays worked for lists but the overall patch was incomplete.
+- **Lesson Learned**: Ensure short-circuit logic for empty inputs is placed before any function calls that delegate to the C extension. Verify that both the `len(args) == 2` (2-D array) and `len(args) == naxis + 1` (multiple 1-D arrays) branches are covered.

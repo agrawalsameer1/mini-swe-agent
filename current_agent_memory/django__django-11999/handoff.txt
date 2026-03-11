@@ -1,0 +1,61 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: Django's `Field.contribute_to_class` method unconditionally adds a `get_FIELD_display` method to model classes for any field with `choices`. This happens during model initialization, which is after the class body has been evaluated, causing any user-defined override of `get_FIELD_display` to be overwritten by the default implementation.
+
+2. **Primary Target**: `django/db/models/fields/__init__.py`
+
+3. **Specific Code Region**: The `contribute_to_class` method of the `Field` class (around line 764).
+
+4. **Logic Change**:
+    - Locate the block in `contribute_to_class` that checks `if self.choices is not None:`.
+    - Currently, it calls `setattr(cls, 'get_%s_display' % self.name, ...)` immediately.
+    - Modify this condition to also check if the class (`cls`) already has an attribute with that name using `hasattr`.
+    - The new condition should be: `if self.choices is not None and not hasattr(cls, 'get_%s_display' % self.name):`.
+
+5. **Implementation Steps**:
+    - Open `django/db/models/fields/__init__.py`.
+    - Find the `contribute_to_class` method.
+    - Update the `setattr` logic for `get_FIELD_display` to be conditional on the absence of the attribute on the class.
+    - Ensure no other methods (like `get_choices` or `formfield`) are modified, as they do not have access to the `cls` variable and were the cause of previous failures.
+
+6. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Create and run a reproduction script `reproduce_bug.py` with the following content:
+```python
+import os
+import django
+from django.conf import settings
+from django.db import models
+from django.utils.translation import gettext_lazy as _
+
+if not settings.configured:
+    settings.configure(
+        INSTALLED_APPS=[],
+        DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}}
+    )
+    django.setup()
+
+class FooBar(models.Model):
+    foo_bar = models.CharField(_("foo"), choices=[(1, 'foo'), (2, 'bar')], max_length=10)
+    class Meta:
+        app_label = 'reproduce_app'
+    def get_foo_bar_display(self):
+        return "something"
+
+if __name__ == "__main__":
+    fb = FooBar(foo_bar=1)
+    result = fb.get_foo_bar_display()
+    print(f"get_foo_bar_display() returns: {result}")
+    if result == "something":
+        print("SUCCESS: Overridden get_foo_bar_display() called.")
+    else:
+        print("FAILURE: Overridden get_foo_bar_display() NOT called.")
+        exit(1)
+```
+- Run the reproduction script: `python reproduce_bug.py`
+- Run existing model field tests to ensure no regressions: `python tests/runtests.py model_fields.tests`
+- Run model basic tests: `python tests/runtests.py model_regress.tests` (if available in the environment) or simply `python tests/runtests.py basic` to ensure general model functionality is intact.

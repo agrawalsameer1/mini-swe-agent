@@ -1,0 +1,35 @@
+=== EXECUTION REPORT ===
+
+# Latest Failed Patch
+
+```python
+diff --git a/django/db/models/expressions.py b/django/db/models/expressions.py
+index 8642e1f151..3aa50a821e 100644
+--- a/django/db/models/expressions.py
++++ b/django/db/models/expressions.py
+@@ -979,12 +979,12 @@ class ExpressionWrapper(SQLiteNumericMixin, Expression):
+         return super().get_group_by_cols()
+ 
+     def as_sql(self, compiler, connection):
+-        return compiler.compile(self.expression)
+-
+-    def __repr__(self):
+-        return "{}({})".format(self.__class__.__name__, self.expression)
+-
+-
++        try:
++            return compiler.compile(self.expression)
++        except EmptyResultSet:
++            return Value(False, output_field=self.output_field).as_sql(compiler, connection)
++        except FullResultSet:
++            return Value(True, output_field=self.output_field).as_sql(compiler, connection)
+ class When(Expression):
+     template = 'WHEN %(condition)s THEN %(result)s'
+     # This isn't a complete conditional expression, must be used in Case().
+```
+
+# Failed Validation Commands
+
+- **python3 reproduce_bug.py**
+    - **Always-True Case Failure**: The command failed with `django.db.utils.OperationalError: near "AS": syntax error`. The generated SQL was `SELECT  AS "foo" FROM "reproduce_app_mymodel"`. This occurred because `FullResultSet` does not exist in this Django version, so the `except FullResultSet` block was never triggered, and the empty string from `compiler.compile()` was returned as-is.
+    - **Note**: The Always-False case succeeded with this patch, but the overall validation failed due to the crash in the Always-True case.

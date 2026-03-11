@@ -1,0 +1,77 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/models/deletion.py**: This file contains the `Collector` class responsible for handling object deletion.
+    - **Collector.delete() method**: Specifically the optimization block (lines 277-282) which handles the "fast-delete" case for a single object with no dependencies.
+    - **Line 326 (approx)**: The location where `setattr(instance, model._meta.pk.attname, None)` is correctly called for the standard (non-optimized) deletion path.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug is caused by an early return in the `Collector.delete()` method. When Django identifies that a single instance can be "fast-deleted" (i.e., it has no dependencies requiring complex cascading or signal handling), it executes a simplified deletion path:
+
+```python
+# django/db/models/deletion.py (around line 277)
+if len(self.data) == 1 and len(instances) == 1:
+    instance = list(instances)[0]
+    if self.can_fast_delete(instance):
+        with transaction.mark_for_rollback_on_error():
+            count = sql.DeleteQuery(model).delete_batch([instance.pk], self.using)
+        return count, {model._meta.label: count} # Early return happens here
+```
+
+In this optimized path, the code returns the deletion count immediately after the SQL execution. It fails to perform the standard cleanup step of setting the instance's primary key attribute to `None`, which normally happens at the end of the full `delete()` method. Consequently, the Python object still appears to have a primary key even though the corresponding row has been deleted from the database.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+The following script reproduces the issue. It requires `pytz` and `sqlparse` to be installed in the environment.
+
+```bash
+# Install dependencies if missing
+pip install pytz sqlparse
+
+# Run reproduction script
+cat <<EOF > reproduce_issue.py
+import os
+import django
+from django.conf import settings
+from django.db import models
+
+if not settings.configured:
+    settings.configure(
+        DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}},
+        INSTALLED_APPS=['reproduce_app'],
+    )
+    django.setup()
+
+class SimpleModel(models.Model):
+    name = models.CharField(max_length=100)
+    class Meta:
+        app_label = 'reproduce_app'
+
+from django.db import connection
+with connection.schema_editor() as schema_editor:
+    schema_editor.create_model(SimpleModel)
+
+obj = SimpleModel.objects.create(name="test")
+print(f"Before delete: pk={obj.pk}")
+obj.delete()
+print(f"After delete: pk={obj.pk}")
+
+if obj.pk is not None:
+    print("FAILURE: PK not cleared after delete")
+    exit(1)
+else:
+    print("SUCCESS: PK cleared after delete")
+    exit(0)
+EOF
+
+mkdir -p reproduce_app
+touch reproduce_app/__init__.py
+python reproduce_issue.py
+```
+
+# FAILED PATCH ATTEMPTS
+
+No patch attempts have been made yet. The exploration phase successfully identified the bug and confirmed it with a reproduction script.

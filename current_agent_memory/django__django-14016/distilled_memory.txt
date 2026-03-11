@@ -1,0 +1,56 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/models/query_utils.py**:
+    - `Q.__init__`: The primary location of the fix. It intercepts `*args` and `**kwargs` to convert non-pickleable dictionary views (`dict_keys`, `dict_values`, `dict_items`) into lists before they are stored in `self.children`.
+    - `Q.deconstruct`: Responsible for serializing `Q` objects. It relies on the normalized state in `self.children` to produce picklable output.
+    - `Q._combine`: Triggers `copy.deepcopy(self)`, which previously failed when `self.children` contained dictionary views.
+- **django/utils/tree.py**:
+    - `Node.__deepcopy__`: The base implementation for `Q` objects that fails in Python 3.11+ when encountering dictionary views.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism**: In Python 3.11+, dictionary views are no longer picklable. Django's `Q` objects store filter arguments in a `children` list. When `Q` objects are combined (e.g., `q1 | q2`), Django performs a `deepcopy`. If a `Q` object was initialized with a dictionary view (e.g., `Q(id__in=my_dict.keys())`), the `deepcopy` operation fails with `TypeError: cannot pickle 'dict_keys' object`.
+- **Fix Strategy**: The `Q.__init__` method must normalize these specific types by converting them to lists. This ensures that the internal state of the `Q` object remains picklable while preserving the logical intent of the filter, as the Django ORM handles lists correctly for lookups like `__in`.
+- **Type Checking**: Since dictionary view types are not directly exposed as built-ins in all Python versions, the implementation uses `type({}.keys())`, `type({}.values())`, and `type({}.items())` for robust type checking.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+- **Reproduction Script (`reproduce_issue.py`)**:
+```python
+import copy
+import django
+from django.conf import settings
+from django.db.models import Q
+
+if not settings.configured:
+    settings.configure()
+    django.setup()
+
+keys = {1: 2}.keys()
+q1 = Q(x__in=keys)
+q2 = Q()
+# Triggers Q._combine -> copy.deepcopy
+result = q2 | q1
+copy.deepcopy(q1)
+```
+- **Deconstruction Validation (`test_deconstruct.py`)**:
+```python
+from django.db.models import Q
+keys = {1: 2}.keys()
+q = Q(x__in=keys)
+path, args, kwargs = q.deconstruct()
+assert isinstance(kwargs['x__in'], list)
+```
+- **Test Suite Commands**:
+    - `export PYTHONPATH=$PYTHONPATH:.`
+    - `python tests/runtests.py queries.test_q basic.tests`
+
+# FAILED PATCH ATTEMPTS
+
+- **Attempt 1 (Structural Corruption)**: A previous attempt accidentally inserted a duplicate `__init__` method inside the `deconstruct` method, causing a `SyntaxError`.
+- **Attempt 2 (Mixin Regression)**: An attempt to modify `RegisterLookupMixin` caused `AttributeError` in components like `ForeignKey`.
+- **Attempt 3 (Patch Corruption)**: A patch attempt was corrupted with incorrect indentation and logic flow, nesting `__init__` inside `deconstruct`.
+- **Lesson Learned**: The fix must be strictly contained within a clean override of `Q.__init__`. Normalizing the data at the point of entry (initialization) is the most effective and safest approach to ensure all downstream operations (deepcopy, pickle, deconstruct) work correctly.

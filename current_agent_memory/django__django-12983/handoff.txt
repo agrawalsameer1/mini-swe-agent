@@ -1,0 +1,36 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `django.utils.text.slugify` function currently only strips leading and trailing whitespace. It fails to strip leading and trailing hyphens and underscores, which are often left behind after converting spaces to hyphens or removing non-alphanumeric characters.
+2. **Target File**: `django/utils/text.py`
+3. **Target Function**: `slugify(value, allow_unicode=False)`
+4. **Logic Change**:
+    - The current implementation ends with `return re.sub(r'[-\s]+', '-', value)`.
+    - This should be modified to strip hyphens and underscores from the resulting string.
+    - The updated logic will:
+        1. Normalize and lowercase the input.
+        2. Remove characters that aren't alphanumerics, underscores, or hyphens.
+        3. Strip whitespace.
+        4. Convert sequences of hyphens and spaces into a single hyphen.
+        5. **New Step**: Strip any remaining leading or trailing hyphens or underscores.
+5. **Specific Edit**:
+    - In `django/utils/text.py`, locate the `slugify` function (around line 395).
+    - Change the last line of the function from:
+      ```python
+      return re.sub(r'[-\s]+', '-', value)
+      ```
+      to:
+      ```python
+      return re.sub(r'[-\s]+', '-', value).strip('-_')
+      ```
+6. **Verification**: Run the validation commands to ensure the fix works as expected and does not break existing functionality.
+
+# VALIDATION PLAN
+
+- **Reproduction Script**: Run the custom reproduction script created during exploration to verify the specific fix for leading/trailing underscores and hyphens.
+  - `python3 reproduce_issue.py`
+- **Existing Module Tests**: Run the existing tests for `django.utils.text` to ensure no regressions in slugification or other text utilities.
+  - `python3 tests/runtests.py utils_tests.test_text`
+- **Broad Regression Check**: Run template tests that often use the `slugify` filter to ensure integration remains stable.
+  - `python3 tests/runtests.py template_tests.test_context` (as identified in the file search) or simply `python3 tests/runtests.py utils_tests` for a broader utility check.

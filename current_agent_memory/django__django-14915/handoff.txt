@@ -1,0 +1,80 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `ModelChoiceIteratorValue` class in `django/forms/models.py` defines `__eq__` but does not define `__hash__`. In Python 3, this makes the class unhashable. When a `ModelChoiceField` is iterated (e.g., in a template or custom `create_option` method), it yields `ModelChoiceIteratorValue` objects. If these objects are used as dictionary keys or checked for membership in a dictionary (as seen in the bug report: `if value in self.show_fields:`), a `TypeError: unhashable type: 'ModelChoiceIteratorValue'` is raised.
+
+2. **Primary Target File**: `django/forms/models.py`
+
+3. **Logic Change**:
+    - Locate the `ModelChoiceIteratorValue` class.
+    - Add a `__hash__` method to the class.
+    - The `__hash__` method should return the hash of the underlying `self.value` attribute to maintain consistency with the existing `__eq__` implementation (which compares `self.value`).
+
+4. **Specific Edit**:
+    In `django/forms/models.py`:
+    ```python
+    class ModelChoiceIteratorValue:
+        def __init__(self, value, instance):
+            self.value = value
+            self.instance = instance
+
+        def __str__(self):
+            return str(self.value)
+
+        def __eq__(self, other):
+            if isinstance(other, ModelChoiceIteratorValue):
+                other = other.value
+            return self.value == other
+
+        # ADD THIS METHOD:
+        def __hash__(self):
+            return hash(self.value)
+    ```
+
+5. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+1. **Reproduction Script**: Create and run a standalone script to verify hashability without requiring full Django initialization (to avoid dependency issues like `asgiref` observed in exploration).
+   ```bash
+   cat <<EOF > verify_hash.py
+   import sys
+   import os
+
+   # Add current directory to sys.path to import django
+   sys.path.insert(0, os.getcwd())
+
+   try:
+       from django.forms.models import ModelChoiceIteratorValue
+       val = ModelChoiceIteratorValue(1, None)
+       d = {1: 'first_name'}
+       
+       # This should not raise TypeError
+       exists = val in d
+       print(f"Membership check successful: {exists}")
+       
+       # This should not raise TypeError
+       h = hash(val)
+       print(f"Hash value: {h}")
+       
+       print("SUCCESS: ModelChoiceIteratorValue is now hashable.")
+   except TypeError as e:
+       print(f"FAILURE: {e}")
+       sys.exit(1)
+   except Exception as e:
+       print(f"An unexpected error occurred: {e}")
+       sys.exit(1)
+   EOF
+   python3 verify_hash.py
+   ```
+
+2. **Existing Tests**: Run the relevant Django test suite to ensure no regressions in model choice fields.
+   ```bash
+   python3 tests/runtests.py model_forms.test_modelchoicefield
+   ```
+
+3. **Broader Regression**: Run all tests in the `model_forms` directory.
+   ```bash
+   python3 tests/runtests.py model_forms
+   ```

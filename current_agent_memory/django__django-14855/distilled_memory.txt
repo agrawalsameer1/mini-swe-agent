@@ -1,0 +1,81 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/contrib/admin/helpers.py**: Contains the `AdminReadonlyField` class and its `get_admin_url` method.
+    - `AdminReadonlyField.get_admin_url` (around line 206): This method generates the URL for a readonly field that points to a related object. It currently calls `reverse` without specifying the `current_app`.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The `AdminReadonlyField.get_admin_url` method is responsible for generating links to related objects in the Django admin when a field is marked as `readonly`. 
+
+The bug occurs because the call to `django.urls.reverse` inside this method lacks the `current_app` argument. When a custom `AdminSite` is used (e.g., an admin site with a name other than the default 'admin'), `reverse` fails to resolve the URL within that specific namespace unless `current_app` is provided. This results in either a `NoReverseMatch` exception (which the method catches and then returns the string representation of the object instead of a link) or a link to the default admin site instead of the custom one.
+
+The `AdminReadonlyField` instance already has access to `self.model_admin`, which in turn has access to `self.model_admin.admin_site.name`. This name should be passed as `current_app` to the `reverse` function.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+A reproduction script `reproduction_script.py` was created that mocks the `reverse` function to inspect the arguments passed to it.
+
+```python
+import django
+from django.conf import settings
+from django.contrib.admin.helpers import AdminReadonlyField
+from unittest.mock import MagicMock
+
+if not settings.configured:
+    settings.configure(
+        INSTALLED_APPS=['django.contrib.contenttypes', 'django.contrib.auth', 'django.contrib.admin'],
+        DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}},
+    )
+    django.setup()
+
+def test_get_admin_url_current_app():
+    remote_field = MagicMock()
+    remote_field.model._meta.app_label = 'auth'
+    remote_field.model._meta.model_name = 'user'
+    remote_obj = MagicMock()
+    remote_obj.pk = 1
+    
+    model_admin = MagicMock()
+    model_admin.admin_site.name = 'custom-admin'
+    
+    form = MagicMock()
+    form._meta.labels = {}
+    form._meta.help_texts = {}
+    form.fields = {}
+    form.instance = MagicMock()
+    
+    readonly_field = AdminReadonlyField(form, 'field_name', is_first=True, model_admin=model_admin)
+    
+    import django.contrib.admin.helpers as helpers
+    original_reverse = helpers.reverse
+    captured_kwargs = []
+    
+    def mocked_reverse(*args, **kwargs):
+        captured_kwargs.append(kwargs)
+        return "/mocked-url/"
+
+    helpers.reverse = mocked_reverse
+    try:
+        readonly_field.get_admin_url(remote_field, remote_obj)
+    finally:
+        helpers.reverse = original_reverse
+    
+    print(f"Captured kwargs: {captured_kwargs}")
+    if captured_kwargs and 'current_app' in captured_kwargs[0]:
+        print(f"SUCCESS: current_app is {captured_kwargs[0]['current_app']}")
+    else:
+        print("FAILURE: current_app is missing")
+
+if __name__ == '__main__':
+    test_get_admin_url_current_app()
+```
+
+**Execution Command:**
+`python3 reproduction_script.py`
+
+# FAILED PATCH ATTEMPTS
+
+(No patch attempts have been made yet in this phase.)

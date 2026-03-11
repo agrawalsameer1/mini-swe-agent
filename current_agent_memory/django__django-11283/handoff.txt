@@ -1,0 +1,24 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The migration `auth.0011_update_proxy_permissions` fails with an `IntegrityError` because it attempts to update the `content_type` of permissions from a concrete model to a proxy model using a bulk `update()`. If permissions with the same `codename` already exist for both the concrete and proxy `content_type` (e.g., due to manual creation or model recreation), the update violates the unique constraint on `(content_type_id, codename)`.
+2. **Primary Target File**: `django/contrib/auth/migrations/0011_update_proxy_permissions.py`.
+3. **Logic Change**: Modify the `update_proxy_model_permissions` function to handle potential collisions. Before performing the bulk update, identify permissions that already exist for the target `content_type` and delete the corresponding permissions on the source `content_type`.
+4. **Specific Steps**:
+    - Open `django/contrib/auth/migrations/0011_update_proxy_permissions.py`.
+    - Locate the `update_proxy_model_permissions` function.
+    - Before the line `Permission.objects.filter(...).update(content_type=new_content_type)`, add logic to:
+        - Query for `codename` values that already exist for the `new_content_type` within the `permissions_query`.
+        - Delete permissions from the `old_content_type` that match those `codename` values.
+    - Proceed with the bulk `update()` for the remaining permissions on the `old_content_type`.
+5. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Create and run a reproduction script (based on the one in the transcript) that manually creates colliding permissions for both concrete and proxy models, then executes the migration logic.
+- `python reproduce_issue.py` (This script should now print "Migration successful" instead of failing with `IntegrityError`).
+- Run existing migration tests for the auth module:
+- `python tests/runtests.py auth_tests.test_migrations`
+- Run all auth tests to ensure no regressions in permission handling:
+- `python tests/runtests.py auth_tests`

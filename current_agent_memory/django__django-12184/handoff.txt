@@ -1,0 +1,46 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: In `django.urls.resolvers.RegexPattern.match`, the logic for extracting URL parameters incorrectly falls back to positional arguments (`match.groups()`) when a regex contains named groups but none of them matched (i.e., they are all `None`). This causes optional named groups that don't match to be passed as multiple `None` positional arguments to the view, leading to a `TypeError`.
+
+2. **Primary Target File**: `django/urls/resolvers.py`
+
+3. **Responsible Code Region**: The `match` method of the `RegexPattern` class (around line 160).
+
+4. **Current Logic**:
+   ```python
+   def match(self, path):
+       match = self.regex.search(path)
+       if match:
+           # If there are any named groups, use those as kwargs, ignoring
+           # non-named groups. Otherwise, pass all non-named arguments as
+           # positional arguments.
+           kwargs = {k: v for k, v in match.groupdict().items() if v is not None}
+           args = () if kwargs else match.groups()
+           return path[match.end():], args, kwargs
+       return None
+   ```
+   The line `args = () if kwargs else match.groups()` is problematic. If `match.groupdict()` contains keys but all values are `None`, `kwargs` becomes an empty dictionary. The code then executes `match.groups()`, which returns all capturing groups (including the named ones) as `None` in a tuple, and assigns them to `args`.
+
+5. **Logic Change**:
+   The logic should check if the regex *has* any named groups defined, rather than checking if any named groups *matched*. If named groups are present in the regex, `args` should be empty, and only the matched named groups should be passed via `kwargs`.
+
+6. **Implementation Steps**:
+   - Modify `django/urls/resolvers.py`.
+   - In `RegexPattern.match`, change the condition for assigning `args`.
+   - Instead of `args = () if kwargs else match.groups()`, use `args = () if self.regex.groupindex else match.groups()`.
+   - This ensures that if the regular expression defines any named groups (stored in `groupindex`), we treat it as a "named group" pattern and do not fall back to positional `match.groups()`.
+
+7. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Run the reproduction script created during exploration to verify the fix for the reported issue:
+  `python3 reproduce_issue.py`
+- Run the existing URL resolver tests to ensure no regressions in URL matching:
+  `python3 tests/runtests.py urlpatterns`
+- Run the URL reverse resolution tests as a broader check:
+  `python3 tests/runtests.py urlpatterns_reverse`
+- Run the specific test for regex patterns:
+  `python3 tests/runtests.py resolve_url`

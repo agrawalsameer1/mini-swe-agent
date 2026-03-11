@@ -1,0 +1,43 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `shell` management command crashes when executing code containing function definitions via the `-c` option or `stdin`. This happens because `exec()` is called without an explicit globals dictionary, causing it to execute in the local scope of the `handle` method. In Python, functions defined in a local scope do not form a closure over other variables defined in that same local scope unless they are explicitly nonlocal, leading to `NameError` when the function is called.
+2. **Primary Target File**: `django/core/management/commands/shell.py`
+3. **Responsible Code Region**: The `handle` method, specifically the blocks handling `options['command']` and `sys.stdin.read()`.
+4. **Logic Change**:
+    - In `django/core/management/commands/shell.py`, locate the `handle` method.
+    - Identify the two `exec()` calls:
+        - `exec(options['command'])`
+        - `exec(sys.stdin.read())`
+    - Modify both calls to include a dictionary as the second argument to provide a distinct global namespace.
+    - The updated calls should look like:
+        - `exec(options['command'], {})`
+        - `exec(sys.stdin.read(), {})`
+    - This ensures that the executed code runs in its own global scope, matching the behavior of `python -c`.
+5. **Run Validation**: Execute the commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Create and run the reproduction script:
+```bash
+cat <<EOF > reproduce_bug.sh
+python3 -m django shell -c "
+import django
+def f():
+    print(django.__version__)
+f()"
+EOF
+export DJANGO_SETTINGS_MODULE=tests.test_sqlite
+# Ensure dependencies are met (based on exploration)
+pip install asgiref pytz
+bash reproduce_bug.sh
+```
+- Run existing shell tests to ensure no regressions:
+```bash
+python3 ./tests/runtests.py shell
+```
+- Verify stdin execution (if environment allows):
+```bash
+echo "import django; print(django.__version__)" | python3 -m django shell
+```

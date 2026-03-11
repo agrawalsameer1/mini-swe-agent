@@ -1,0 +1,51 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `SessionBase._legacy_decode` method in `django/contrib/sessions/backends/base.py` fails to handle invalid base64 input because the `base64.b64decode` call is located outside the `try...except` block. When session data is corrupted or in an unexpected format (e.g., a new-style signed session that is not valid base64), `base64.b64decode` raises a `binascii.Error` (or `ValueError`), causing a crash instead of returning an empty session dictionary.
+
+2. **Primary Target File**: `django/contrib/sessions/backends/base.py`
+
+3. **Logic Change**:
+    - Locate the `_legacy_decode` method in `django/contrib/sessions/backends/base.py` (around line 126).
+    - Move the line `encoded_data = base64.b64decode(session_data.encode('ascii'))` inside the existing `try` block.
+    - Ensure that any exception raised by `base64.b64decode` (such as `binascii.Error` or `ValueError`) is caught by the `except Exception:` block, which already handles returning an empty dictionary `{}`.
+
+4. **Specific Code Modification**:
+    Current code:
+    ```python
+    def _legacy_decode(self, session_data):
+        # RemovedInDjango40Warning: pre-Django 3.1 format will be invalid.
+        encoded_data = base64.b64decode(session_data.encode('ascii'))
+        try:
+            # could produce ValueError if there is no ':'
+            hash, serialized = encoded_data.split(b':', 1)
+            ...
+    ```
+    Modified code:
+    ```python
+    def _legacy_decode(self, session_data):
+        # RemovedInDjango40Warning: pre-Django 3.1 format will be invalid.
+        try:
+            encoded_data = base64.b64decode(session_data.encode('ascii'))
+            # could produce ValueError if there is no ':'
+            hash, serialized = encoded_data.split(b':', 1)
+            ...
+    ```
+
+5. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Run the reproduction script created during exploration to verify the fix:
+  `python3 reproduce_simple.py`
+  (This script should now output `Result: {}` instead of crashing with a `binascii.Error` or `Error`).
+
+- Run the existing session tests to ensure no regressions:
+  `python3 tests/runtests.py sessions_tests`
+
+- Run the specific test file for session regression if applicable:
+  `python3 tests/runtests.py test_client_regress.session`
+
+- Run the broader session-related tests:
+  `python3 tests/runtests.py messages_tests.test_session`

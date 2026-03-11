@@ -1,0 +1,73 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/urls/resolvers.py**: The `RegexPattern.match` method (around line 160) contains the logic that extracts positional and keyword arguments from a URL regex match.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug occurs in `RegexPattern.match` when a URL pattern uses named groups (via `re_path` or `url`) that are optional and do not match the requested URL.
+
+**Mechanism:**
+1. When a regex match is found, `RegexPattern.match` calculates `kwargs` by filtering out `None` values from `match.groupdict()`.
+2. It then calculates `args` using the logic: `args = () if kwargs else match.groups()`.
+3. If a URL pattern has named groups but **none** of them matched (e.g., an optional group `(?P<name>...)?` where the group is missing in the URL), `kwargs` becomes an empty dictionary `{}`.
+4. Because `kwargs` is empty, the logic falls back to `match.groups()`, which returns all capturing groups (including the named ones) as positional arguments, typically as `None`.
+5. These unexpected `None` positional arguments are then passed to the view function, causing a `TypeError` if the view's signature does not expect them.
+
+**Example:**
+Pattern: `r'^module/(?P<format>(html|json|xml))?/?$'`
+URL: `/module/`
+Result: `kwargs = {}`, `args = (None, None)`.
+View call: `view(request, None, None)` -> `TypeError`.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+The following script reproduces the issue by simulating a request to a URL with an unmatched optional named group:
+
+```python
+import os
+import django
+from django.conf import settings
+from django.urls import re_path, resolve
+from django.http import HttpResponse
+from django.test import Client
+
+# Configure Django settings
+if not settings.configured:
+    settings.configure(
+        DEBUG=True,
+        ROOT_URLCONF=__name__,
+        SECRET_KEY='secret',
+        ALLOWED_HOSTS=['*'],
+        DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}}
+    )
+    django.setup()
+
+def modules(request, format='html'):
+    return HttpResponse(f"Format: {format}")
+
+urlpatterns = [
+    re_path(r'^module/(?P<format>(html|json|xml))?/?$', modules, name='modules'),
+]
+
+if __name__ == "__main__":
+    client = Client()
+    # This should succeed
+    print("Testing /module/html/")
+    response = client.get('/module/html/')
+    print(f"Status: {response.status_code}")
+
+    # This currently fails with TypeError
+    print("\nTesting /module/")
+    try:
+        response = client.get('/module/')
+        print(f"Status: {response.status_code}")
+    except Exception as e:
+        print(f"Caught expected error: {e}")
+```
+
+# FAILED PATCH ATTEMPTS
+
+(No failed patch attempts recorded yet.)

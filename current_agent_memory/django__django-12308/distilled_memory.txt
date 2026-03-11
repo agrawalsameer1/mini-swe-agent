@@ -1,0 +1,57 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/contrib/admin/utils.py**: Contains the `display_for_field` function (line 380) which determines how field values are rendered in the Django admin (e.g., in change lists or as readonly fields).
+- **django/db/models/fields/json.py**: Defines the `JSONField` model field.
+- **django/forms/fields.py**: Defines the `JSONField` form field, specifically its `prepare_value` method (line 1265) which handles JSON serialization using the configured encoder.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism**: When a `JSONField` is displayed as a readonly field in the Django admin, `display_for_field` is called to format the value. Currently, `display_for_field` lacks a specific case for `models.JSONField`.
+- **Result**: The function falls through to `display_for_value`, which eventually calls `str(value)` on the Python object (usually a `dict` or `list`). This produces a Python-style string representation (e.g., using single quotes: `{'a': 1}`) instead of valid JSON (which requires double quotes: `{"a": 1}`).
+- **Hypothesis**: Adding an explicit check for `isinstance(field, models.JSONField)` in `display_for_field` and using a proper JSON serialization method (respecting the field's custom `encoder`) will fix the display to be valid JSON.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+### Reproduction Script
+The following script (requires `asgiref` and `pytz` in the environment) demonstrates the issue:
+```python
+import django
+from django.conf import settings
+from django.db import models
+from django.contrib.admin.utils import display_for_field
+
+if not settings.configured:
+    settings.configure(
+        INSTALLED_APPS=['django.contrib.contenttypes', 'django.contrib.auth', 'django.contrib.admin'],
+        DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}},
+    )
+    django.setup()
+
+class MyModel(models.Model):
+    data = models.JSONField()
+    class Meta:
+        app_label = 'reproduce_app'
+
+field = MyModel._meta.get_field('data')
+value = {"foo": "bar"}
+display_value = display_for_field(value, field, "-")
+
+print(f"Display Value: {display_value}")
+if "'" in display_value:
+    print("ISSUE REPRODUCED: Found single quotes (Python dict repr).")
+else:
+    print("ISSUE NOT REPRODUCED: Valid JSON (double quotes).")
+```
+
+### Environment Setup
+```bash
+pip install asgiref pytz
+python3 reproduce_issue.py
+```
+
+# FAILED PATCH ATTEMPTS
+
+- No patch attempts have been made yet. The exploration phase concluded after identifying the bug location and confirming the missing logic in `django/contrib/admin/utils.py`.

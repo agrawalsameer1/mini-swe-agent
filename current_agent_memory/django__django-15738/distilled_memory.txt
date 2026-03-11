@@ -1,0 +1,82 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/migrations/operations/models.py**: Contains the `AlterTogetherOptionOperation` class (base for `AlterUniqueTogether` and `AlterIndexTogether`). The `database_forwards` method here is responsible for triggering the schema change.
+- **django/db/backends/base/schema.py**: Contains the `_delete_composed_index` method which raises the `ValueError: Found wrong number (0) of constraints`. This occurs because it cannot resolve field names to columns if the fields have been changed or removed in the model state passed to it.
+- **django/db/migrations/state.py**: Manages the `ProjectState` and `ModelState` during migrations.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug occurs when a migration contains both an `AlterUniqueTogether` (to remove a constraint) and a field change (e.g., `ForeignKey` to `ManyToManyField`) for one of the fields in that constraint.
+
+1.  In `AlterTogetherOptionOperation.database_forwards`, the `to_state` is used to retrieve the `new_model`.
+2.  If the field has been changed to a `ManyToManyField` in the same migration, the `new_model` in `to_state` no longer has the original database column associated with that field name.
+3.  When `schema_editor.alter_unique_together` is called with this `new_model`, it tries to resolve the old constraint's fields to columns using `new_model._meta.get_field(field).column`.
+4.  Since the field is now a `ManyToManyField` (or removed), it either has no column or doesn't exist on the table, causing `_delete_composed_index` to look for the wrong (or no) columns in the database schema.
+5.  The database introspection fails to find a constraint matching these "missing" columns, leading to the `ValueError`.
+
+**Hypothesis**: The `database_forwards` method needs to use the `old_model` (from `from_state`) to correctly identify and drop constraints that existed before the field changes, rather than relying solely on the `new_model` from `to_state`.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+The following script (saved as `reproduce_issue.py`) simulates the failure by ordering `RemoveField`/`AddField` before `AlterUniqueTogether` within the same migration, which mimics the state discrepancy:
+
+```python
+import os
+import sys
+import django
+from django.conf import settings
+from django.db import migrations, models
+from django.db.migrations.executor import MigrationExecutor
+from django.db import connection
+
+if not settings.configured:
+    settings.configure(
+        DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}},
+        INSTALLED_APPS=['reproduce_app'],
+    )
+    django.setup()
+
+app_label = "reproduce_app"
+state_v1 = migrations.state.ProjectState()
+state_v1.add_model(migrations.state.ModelState(app_label, "ProjectDataSet", [
+    ("id", models.AutoField(primary_key=True)),
+]))
+state_v1.add_model(migrations.state.ModelState(app_label, "Authors", [
+    ("id", models.AutoField(primary_key=True)),
+    ("project_data_set", models.ForeignKey("ProjectDataSet", on_delete=models.CASCADE)),
+    ("state", models.IntegerField()),
+    ("start_date", models.DateField()),
+], options={"unique_together": {("project_data_set", "state", "start_date")}}))
+
+migration1 = migrations.Migration("0001_initial", app_label)
+migration1.operations = [
+    migrations.CreateModel("ProjectDataSet", [("id", models.AutoField(primary_key=True))]),
+    migrations.CreateModel("Authors", [
+        ("id", models.AutoField(primary_key=True)),
+        ("project_data_set", models.ForeignKey("ProjectDataSet", on_delete=models.CASCADE)),
+        ("state", models.IntegerField()),
+        ("start_date", models.DateField()),
+    ], options={"unique_together": {("project_data_set", "state", "start_date")}}),
+]
+
+migration2 = migrations.Migration("0002_update", app_label)
+migration2.operations = [
+    migrations.RemoveField(model_name="authors", name="project_data_set"),
+    migrations.AddField(model_name="authors", name="project_data_set", field=models.ManyToManyField(to="ProjectDataSet")),
+    migrations.AlterUniqueTogether(name="authors", unique_together=set()),
+]
+
+executor = MigrationExecutor(connection)
+executor.apply_migration(state_v1, migration1)
+executor.apply_migration(state_v1.clone(), migration2)
+```
+
+**Execution Command**:
+`export PYTHONPATH=$PYTHONPATH:. && python3 reproduce_issue.py`
+
+# FAILED PATCH ATTEMPTS
+
+*(No patch attempts were made during the exploration phase.)*

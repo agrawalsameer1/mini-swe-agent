@@ -1,0 +1,44 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/urls/resolvers.py**: Contains the `ResolverMatch` class.
+    - `ResolverMatch.__init__`: Responsible for initializing the match object, including setting `self.func`, `self.args`, `self.kwargs`, and calculating `self._func_path`.
+    - `ResolverMatch.__repr__`: Uses `self._func_path` to provide a string representation of the match.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism**: When a view is wrapped in `functools.partial`, `ResolverMatch` treats the `partial` object itself as the view function.
+- **Symptoms**:
+    - `self._func_path` becomes `"functools.partial"` because the partial object lacks a `__name__` attribute (falling into the class-based view detection logic).
+    - `repr(ResolverMatch)` displays `func=functools.partial`, which is uninformative for debugging.
+    - The `args` and `kwargs` stored in the `ResolverMatch` only reflect those passed during resolution, ignoring those pre-filled by the `partial` object.
+- **Hypothesis**: `ResolverMatch.__init__` should recursively unwrap `functools.partial` objects to find the underlying function and merge the captured arguments/keywords into the match's own `args` and `kwargs`.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+- **Reproduction Script**: `reproduce_issue.py`
+```python
+import functools
+from django.urls import ResolverMatch
+
+def my_view(request, arg1, arg2):
+    return None
+
+partial_view = functools.partial(my_view, arg1='foo')
+match = ResolverMatch(partial_view, args=(), kwargs={'arg2': 'bar'})
+
+print(f"Repr: {repr(match)}")
+print(f"Func path: {match._func_path}")
+
+# Expected (after fix):
+# Repr: ResolverMatch(func=__main__.my_view, args=(), kwargs={'arg1': 'foo', 'arg2': 'bar'}, ...)
+# Func path: __main__.my_view
+```
+- **Dependencies**: Requires `asgiref` and `pytz` to be installed in the environment to import `django.urls`.
+- **Test Command**: `python3 reproduce_issue.py`
+
+# FAILED PATCH ATTEMPTS
+
+- No patch attempts have been made yet.

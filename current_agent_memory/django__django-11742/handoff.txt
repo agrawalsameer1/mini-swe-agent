@@ -1,0 +1,38 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: Django's model validation checks `max_length` and `choices` independently but does not verify that the `max_length` is sufficient to hold the longest value defined in `choices`. This leads to `DataError` at runtime. The check must be robust enough to handle nested (grouped) choices and malformed choice structures without crashing.
+2. **Primary Target File**: `django/db/models/fields/__init__.py`
+3. **Modify `Field` class**:
+    - Add a new method `_check_choices_max_length(self)`.
+    - Logic:
+        - Return an empty list if `self.max_length` is `None` or `self.choices` is empty.
+        - Initialize an empty list for errors.
+        - Iterate through `self.choices`. For each item:
+            - If the item is a string or not an iterable of length 2, skip it (this is handled by `_check_choices`).
+            - Unpack the item into `value` and `label`.
+            - If `label` is an iterable (list or tuple) and not a string (indicating grouped choices), iterate through the nested choices and check their values.
+            - For each valid choice value:
+                - If the value is a string or bytes, check if its length exceeds `self.max_length`.
+                - If it exceeds, append a `checks.Error` with ID `fields.E009`.
+    - Example error message: `"'max_length' is too small to fit the longest value in 'choices' (X characters)."`
+4. **Modify `CharField.check`**:
+    - Locate the `check` method in the `CharField` class.
+    - Add `*self._check_choices_max_length(),` to the list of returned checks.
+5. **Modify `BinaryField.check`**:
+    - Locate the `check` method in the `BinaryField` class.
+    - Add `*self._check_choices_max_length(),` to the list of returned checks.
+6. **Run Validation**:
+    - Execute the commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Run the reproduction test created during exploration:
+  `PYTHONPATH=. python3 tests/runtests.py test_choices_max_length`
+- Run existing model field tests to ensure no regressions:
+  `PYTHONPATH=. python3 tests/runtests.py model_fields`
+- Run invalid model tests to ensure the new check handles malformed `choices` gracefully:
+  `PYTHONPATH=. python3 tests/runtests.py invalid_models_tests`
+- Run the manual reproduction script:
+  `python3 reproduce_issue.py` (if the file exists from exploration)

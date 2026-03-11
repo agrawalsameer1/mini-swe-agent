@@ -1,0 +1,79 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **`django/conf/global_settings.py`**: Contains the default value for `FILE_UPLOAD_PERMISSIONS`. Currently set to `None`.
+- **`django/core/files/storage.py`**: 
+    - `FileSystemStorage.file_permissions_mode`: A cached property that retrieves the value from `settings.FILE_UPLOAD_PERMISSIONS`.
+    - `FileSystemStorage._save()`: Contains the logic for saving files. 
+        - For `TemporaryUploadedFile`, it uses `file_move_safe`, which preserves the original (often restricted) permissions of the temporary file.
+        - For other files, it uses `os.open(full_path, self.OS_OPEN_FLAGS, 0o666)`, which applies the system umask.
+        - At the end of `_save()`, `os.chmod(full_path, self.file_permissions_mode)` is called **only if** `self.file_permissions_mode` is not `None`.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug is an inconsistency in file permissions for uploaded files when `FILE_UPLOAD_PERMISSIONS` is left at its default value of `None`.
+
+1.  **MemoryUploadedFile / Small Files**: These are created via `os.open` with mode `0o666`. On most systems with a `0022` umask, this results in `0o644` permissions.
+2.  **TemporaryUploadedFile / Large Files**: These are created in the system's temporary directory (often with `0o600` permissions for security) and then moved to the destination via `file_move_safe`. Since `FILE_UPLOAD_PERMISSIONS` is `None`, Django does not perform a `chmod` to normalize the permissions, leaving the file with restricted `0o600` permissions.
+
+**Working Hypothesis**: Changing the default `FILE_UPLOAD_PERMISSIONS` from `None` to `0o644` in `global_settings.py` will ensure that `FileSystemStorage._save()` always explicitly sets the permissions to `0o644`, regardless of how the file was handled during the upload process.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+The following script reproduces the inconsistency:
+
+```python
+import os
+import django
+from django.conf import settings
+from django.core.files.storage import FileSystemStorage
+from django.core.files.uploadedfile import TemporaryUploadedFile, InMemoryUploadedFile
+from io import BytesIO
+
+def reproduce():
+    if not settings.configured:
+        settings.configure(
+            FILE_UPLOAD_PERMISSIONS=None,
+            MEDIA_ROOT='./media_test',
+            INSTALLED_APPS=[],
+        )
+    django.setup()
+
+    storage = FileSystemStorage()
+    if not os.path.exists(settings.MEDIA_ROOT):
+        os.makedirs(settings.MEDIA_ROOT)
+
+    # 1. Simulate MemoryUploadedFile
+    name1 = 'test_memory.txt'
+    content1 = BytesIO(b"memory content")
+    uploaded_file1 = InMemoryUploadedFile(content1, None, name1, 'text/plain', len(b"memory content"), None)
+    storage.save(name1, uploaded_file1)
+    path1 = storage.path(name1)
+    mode1 = oct(os.stat(path1).st_mode & 0o777)
+    print(f"Memory uploaded file permissions: {mode1}")
+
+    # 2. Simulate TemporaryUploadedFile
+    name2 = 'test_temp.txt'
+    temp_uploaded_file = TemporaryUploadedFile(name2, 'text/plain', 0, None)
+    temp_uploaded_file.write(b"temp content")
+    temp_uploaded_file.seek(0)
+    # Force restricted permissions on the temp file to simulate standard behavior
+    os.chmod(temp_uploaded_file.temporary_file_path(), 0o600)
+    
+    storage.save(name2, temp_uploaded_file)
+    path2 = storage.path(name2)
+    mode2 = oct(os.stat(path2).st_mode & 0o777)
+    print(f"Temporary uploaded file permissions: {mode2}")
+
+if __name__ == "__main__":
+    reproduce()
+```
+
+**Execution Command**:
+`python3 reproduce_issue.py` (Requires `pytz` to be installed).
+
+# FAILED PATCH ATTEMPTS
+
+No patch attempts have been made yet.

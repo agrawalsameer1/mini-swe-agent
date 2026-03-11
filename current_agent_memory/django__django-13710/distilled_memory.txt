@@ -1,0 +1,83 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/contrib/admin/options.py**: The `InlineModelAdmin` class and its `__init__` method (around lines 2027-2043) contain the logic responsible for initializing `verbose_name` and `verbose_name_plural`.
+- **django/db/models/options.py**: Contains the reference implementation for how Django models derive `verbose_name_plural` from `verbose_name` using `format_lazy('{}s', self.verbose_name)`.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug occurs because `InlineModelAdmin.__init__` independently checks if `self.verbose_name` and `self.verbose_name_plural` are `None`. If they are, it pulls the values directly from the associated model's `_meta` options.
+
+```python
+# Current logic in django/contrib/admin/options.py
+if self.verbose_name is None:
+    self.verbose_name = self.model._meta.verbose_name
+if self.verbose_name_plural is None:
+    self.verbose_name_plural = self.model._meta.verbose_name_plural
+```
+
+If a developer provides a custom `verbose_name` on the Inline class but omits `verbose_name_plural`, the logic fails to derive a new plural from the custom name. Instead, it falls back to the model's original plural name (e.g., "Custom Name" vs "Original Plurals"), leading to an inconsistent UI.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+The following script reproduces the issue by checking if a custom `verbose_name` on an inline correctly triggers a default pluralization or incorrectly falls back to the model's plural:
+
+```bash
+# Dependencies required for reproduction script
+pip install asgiref pytz sqlparse
+
+# Reproduction script
+cat <<EOF > reproduce_issue.py
+import os
+import django
+from django.conf import settings
+
+if not settings.configured:
+    settings.configure(
+        INSTALLED_APPS=[
+            'django.contrib.contenttypes',
+            'django.contrib.auth',
+            'django.contrib.admin',
+            'django.contrib.messages',
+            'django.contrib.sessions',
+        ],
+        DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}},
+        SECRET_KEY='fake-key',
+    )
+    django.setup()
+
+from django.db import models
+from django.contrib import admin
+
+class MyModel(models.Model):
+    class Meta:
+        app_label = 'reproduce_issue'
+        verbose_name = 'Original Name'
+        verbose_name_plural = 'Original Plural'
+
+class MyInline(admin.TabularInline):
+    model = MyModel
+    verbose_name = 'Custom Name'
+
+site = admin.AdminSite()
+inline_instance = MyInline(MyModel, site)
+
+print(f"Inline verbose_name: {inline_instance.verbose_name}")
+print(f"Inline verbose_name_plural: {inline_instance.verbose_name_plural}")
+
+if inline_instance.verbose_name_plural == 'Original Plural':
+    print("ISSUE REPRODUCED: verbose_name_plural still uses the model's plural name.")
+    exit(1)
+elif inline_instance.verbose_name_plural == 'Custom Names':
+    print("FIXED: verbose_name_plural is based on the inline's verbose_name.")
+    exit(0)
+EOF
+
+python3 reproduce_issue.py
+```
+
+# FAILED PATCH ATTEMPTS
+
+(No failed patch attempts recorded in the exploration phase.)

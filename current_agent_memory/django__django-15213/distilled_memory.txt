@@ -1,0 +1,80 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+=== DISTILLED TASK MEMORY ===
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/models/expressions.py**: Contains `ExpressionWrapper`. The `as_sql` method is the primary location for the fix. It must handle cases where the wrapped expression (often a `WhereNode` from a `Q` object) is used in a `SELECT` context but results in an empty string or an `EmptyResultSet` exception.
+- **django/db/models/sql/where.py**: Contains `WhereNode`. Its `as_sql` method returns `('', [])` for always-true conditions and raises `EmptyResultSet` for always-false conditions.
+- **django/db/models/query_utils.py**: Contains the `Q` class, which resolves to `WhereNode` via `resolve_expression`.
+- **django/core/exceptions.py**: Defines core Django exceptions. **Confirmed**: `FullResultSet` is **not** present in this module in the current version of Django (it was introduced in later versions).
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug occurs when a `Q` object representing an always-true or always-false condition is wrapped in an `ExpressionWrapper` and used in a `SELECT` clause (e.g., via `.annotate()`).
+
+1.  **Always-True Case**: `~Q(pk__in=[])` resolves to a `WhereNode` that returns `('', [])` from `as_sql`. `ExpressionWrapper` passes this empty string to the SQL compiler, resulting in invalid SQL like `SELECT  AS "foo"`.
+2.  **Always-False Case**: `Q(pk__in=[])` resolves to a `WhereNode` that raises `EmptyResultSet`. `ExpressionWrapper` currently allows this exception to bubble up, which can cause the entire query to fail or be incorrectly optimized away when used in a `SELECT` context.
+
+**Working Hypothesis**: `ExpressionWrapper.as_sql` must intercept these two outcomes. Since `FullResultSet` is unavailable, the logic must be:
+- Catch `EmptyResultSet` and return a SQL literal for `False`.
+- Check if `compiler.compile(self.expression)` returns an empty SQL string (`''`). If it does, and the expression is conditional (like a `WhereNode`), return a SQL literal for `True`.
+- Use `Value(val, output_field=self.output_field).as_sql(compiler, connection)` to ensure the literal is correctly formatted for the specific database backend.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+The following script reproduces both the invalid SQL (for always-true) and the potential crash/misbehavior (for always-false):
+
+```python
+import os
+import django
+from django.conf import settings
+from django.db import models
+from django.db.models import Q, ExpressionWrapper, BooleanField
+
+if not settings.configured:
+    settings.configure(
+        DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}},
+        INSTALLED_APPS=['django.contrib.contenttypes'],
+    )
+    django.setup()
+
+class MyModel(models.Model):
+    class Meta:
+        app_label = 'reproduce_app'
+
+from django.db import connection
+with connection.schema_editor() as schema_editor:
+    schema_editor.create_model(MyModel)
+
+queryset = MyModel.objects.all()
+
+# Test Always-True
+try:
+    qs_true = queryset.annotate(foo=ExpressionWrapper(~Q(pk__in=[]), output_field=BooleanField())).values("foo")
+    print(f"True Query: {qs_true.query}")
+    list(qs_true)
+    print("Always-True: Success")
+except Exception as e:
+    print(f"Always-True Error: {e}")
+
+# Test Always-False
+try:
+    qs_false = queryset.annotate(foo=ExpressionWrapper(Q(pk__in=[]), output_field=BooleanField())).values("foo")
+    print(f"False Query: {qs_false.query}")
+    list(qs_false)
+    print("Always-False: Success")
+except Exception as e:
+    print(f"Always-False Error: {e}")
+```
+
+# FAILED PATCH ATTEMPTS
+
+- **Attempt 1**: Attempted to use `connection.ops.value_to_db_sql(True, self.output_field)` to generate literals.
+    - **Result**: Failed with `AttributeError: 'DatabaseOperations' object has no attribute 'value_to_db_sql'`.
+- **Attempt 2**: Attempted to import `FullResultSet` from `django.core.exceptions` and catch it in `ExpressionWrapper.as_sql`.
+    - **Result**: Failed with `ImportError: cannot import name 'FullResultSet' from 'django.core.exceptions'`.
+    - **Lesson**: `FullResultSet` does not exist in this Django version. Always-true conditions must be detected by checking for empty SQL strings returned by the compiler.
+- **Attempt 3 (Validation Phase)**: A patch was provided that used `FullResultSet` in a `try/except` block.
+    - **Result**: The always-false case succeeded (because `EmptyResultSet` was caught), but the always-true case still failed with `sqlite3.OperationalError: near "AS": syntax error` because `FullResultSet` was never raised/caught, leaving the SQL as `SELECT  AS "foo"`.

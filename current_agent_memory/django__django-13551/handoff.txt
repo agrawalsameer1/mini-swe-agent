@@ -1,0 +1,36 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `PasswordResetTokenGenerator` does not include the user's email address in the hash used to generate and validate password reset tokens. Consequently, if a user changes their email address after a reset token has been generated but before it is used, the token remains valid, which is a security risk.
+   - **Primary Target File**: `django/contrib/auth/tokens.py`
+   - **Target Method**: `PasswordResetTokenGenerator._make_hash_value`
+
+2. **Implementation Steps**:
+   - Open `django/contrib/auth/tokens.py`.
+   - Locate the `_make_hash_value(self, user, timestamp)` method within the `PasswordResetTokenGenerator` class.
+   - Modify the return statement of `_make_hash_value` to include the user's email address.
+   - To handle cases where the user model might not have an email field (as `AbstractBaseUser` does not strictly require it), use the `get_email_field_name()` method available on the user model to retrieve the field name, and then use `getattr` to get the value.
+   - The updated return value should look like:
+     ```python
+     email = getattr(user, user.get_email_field_name(), '') or ''
+     return str(user.pk) + user.password + str(login_timestamp) + str(timestamp) + str(email)
+     ```
+   - Ensure that if the email is `None`, it defaults to an empty string to maintain string concatenation compatibility.
+
+3. **Final Step**:
+   - Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- **Reproduction Test**: Run the custom test case created during exploration that specifically checks if changing the email invalidates the token.
+  - `export PYTHONPATH=$PYTHONPATH:.`
+  - `python tests/runtests.py auth_tests.test_issue_repro`
+
+- **Existing Token Tests**: Run the existing authentication token tests to ensure no regressions in standard token behavior.
+  - `python tests/runtests.py auth_tests.test_tokens`
+
+- **Broad Auth Tests**: Run the full suite of authentication tests to ensure overall system stability.
+  - `python tests/runtests.py auth_tests`
+
+*Note: Ensure `asgiref`, `sqlparse`, and `pytz` are installed in the environment as they are dependencies for running the Django test suite.*

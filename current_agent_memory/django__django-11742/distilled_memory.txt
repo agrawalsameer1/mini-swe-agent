@@ -1,0 +1,62 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/models/fields/__init__.py**:
+    - `Field` class: Base class where `choices` and `max_length` are defined.
+    - `Field._check_choices`: Existing validation for the structure of the `choices` attribute.
+    - `CharField` class: Inherits from `Field`. Defines `check()` and `_check_max_length_attribute`.
+    - `BinaryField` class: Another field that utilizes `max_length` and requires this validation.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism**: Django's model check framework validates that `max_length` is a positive integer and that `choices` is a valid iterable of tuples. However, it does not verify the relationship between these two attributes. If a `CharField` has a `max_length` of 5 but includes a choice value like `'very_long_value'`, no error is raised during `system check`, leading to potential `DataError` at the database level during model saving.
+- **Hypothesis**: A new check `_check_choices_max_length` should be added to `Field` and called by `CharField.check()` and `BinaryField.check()`.
+- **Validation Failure**: The initial implementation of `_check_choices_max_length` crashed with `ValueError: too many values to unpack (expected 2)` when encountering malformed choices (e.g., a list of strings instead of a list of tuples). This indicates the check must be defensive against invalid `choices` structures, as it may run before or alongside `_check_choices`.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+- **Reproduction Script**: `reproduce_issue.py`
+```python
+import django
+from django.conf import settings
+from django.db import models
+from django.core.checks import run_checks
+
+if not settings.configured:
+    settings.configure(
+        INSTALLED_APPS=['django.contrib.contenttypes', 'django.contrib.auth'],
+        DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}},
+    )
+    django.setup()
+
+class ReproduceModel(models.Model):
+    CHOICES = [
+        ('short', 'Short'),
+        ('very_long_value', 'Very Long Value'),
+    ]
+    my_field = models.CharField(max_length=5, choices=CHOICES)
+
+    class Meta:
+        app_label = 'auth'
+
+errors = run_checks()
+found = any('max_length' in str(e).lower() and 'choices' in str(e).lower() for e in errors)
+print("SUCCESS: Check found" if found else "FAILURE: No check found")
+for e in errors:
+    if 'fields.E009' in str(e):
+        print(e)
+```
+- **New Test Suite**: `tests/test_choices_max_length.py` (covers valid, invalid, grouped, and malformed choices).
+- **Test Suites**:
+    - `PYTHONPATH=. python3 tests/runtests.py test_choices_max_length`
+    - `PYTHONPATH=. python3 tests/runtests.py model_fields`
+    - `PYTHONPATH=. python3 tests/runtests.py invalid_models_tests` (Crucial for catching regressions with malformed choices)
+
+# FAILED PATCH ATTEMPTS
+
+- **Attempt 1**: Added `_check_choices_max_length` using a `while choices: choice_value, choice_label = choices.pop(0)` loop.
+    - **Result**: Failed on `invalid_models_tests.test_ordinary_fields.CharFieldTests.test_choices_containing_non_pairs`.
+    - **Reason**: The code assumed every item in `choices` was a pair. If `choices=['a', 'b']`, the unpacking failed with `ValueError`.
+    - **Lesson**: The check must verify that each choice is an iterable of length 2 before unpacking, or rely on a safer iteration method that ignores malformed entries already caught by `_check_choices`. It must also handle nested (grouped) choices.

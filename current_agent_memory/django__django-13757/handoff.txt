@@ -1,0 +1,49 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: On SQLite and Oracle, `KeyTransformIsNull` (used for `__isnull` lookups on JSON keys) incorrectly handles the `isnull=True` case. It falls back to the default `IsNull` implementation, which generates `LHS IS NULL`. For a `KeyTransform`, the LHS is a `JSON_EXTRACT` call. On these databases, `JSON_EXTRACT` returns `NULL` both when the key is missing and when the key exists but contains a JSON `null` value. The correct behavior for `isnull=True` should be to match only when the key is missing.
+
+2. **Primary Target File**: `django/db/models/fields/json.py`
+   - **Class**: `KeyTransformIsNull`
+   - **Methods**: `as_oracle` and `as_sqlite`
+
+3. **Logic Changes**:
+   - In `as_oracle`: When `self.rhs` is `True` (meaning `isnull=True`), instead of calling `super().as_sql`, it should use `HasKey` logic and negate it. Specifically, it should return `'NOT %s' % sql` where `sql` is the result of `HasKey(...).as_oracle`.
+   - In `as_sqlite`: When `self.rhs` is `True`, it should use `HasKey(...).as_sql` with a custom template: `'JSON_TYPE(%s, %%s) IS NULL'`. This ensures it only matches when the key does not exist (where `JSON_TYPE` returns `NULL`).
+
+4. **Implementation Steps**:
+   - Edit `django/db/models/fields/json.py`.
+   - Locate `class KeyTransformIsNull`.
+   - Update `as_oracle(self, compiler, connection)`:
+     ```python
+     def as_oracle(self, compiler, connection):
+         if not self.rhs:
+             return HasKey(self.lhs.lhs, self.lhs.key_name).as_oracle(compiler, connection)
+         sql, params = HasKey(self.lhs.lhs, self.lhs.key_name).as_oracle(compiler, connection)
+         return 'NOT %s' % sql, params
+     ```
+   - Update `as_sqlite(self, compiler, connection)`:
+     ```python
+     def as_sqlite(self, compiler, connection):
+         if not self.rhs:
+             return HasKey(self.lhs.lhs, self.lhs.key_name).as_sqlite(compiler, connection)
+         return HasKey(self.lhs.lhs, self.lhs.key_name).as_sql(
+             compiler, connection, template='JSON_TYPE(%s, %%s) IS NULL',
+         )
+     ```
+
+5. **Final Step**: Run the validation commands.
+
+# VALIDATION PLAN
+
+- **Reproduction Test**: Run the specific test case that demonstrates the failure when modified to check for `isnull=True` on a key containing a JSON null.
+  - `export PYTHONPATH=$PYTHONPATH:.`
+  - `python3 tests/runtests.py model_fields.test_jsonfield.TestQuerying.test_isnull_key`
+  *(Note: This assumes the test file `tests/model_fields/test_jsonfield.py` has been updated as per the task description to use `value__j__isnull=True` instead of `value__a__isnull=True`)*.
+
+- **Regression Test**: Run all JSON field tests to ensure no regressions.
+  - `python3 tests/runtests.py model_fields.test_jsonfield`
+
+- **Dependency Check**: Ensure required test dependencies are present.
+  - `pip install asgiref pytz sqlparse`

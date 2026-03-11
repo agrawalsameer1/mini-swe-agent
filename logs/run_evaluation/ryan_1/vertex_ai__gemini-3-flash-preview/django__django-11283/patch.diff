@@ -1,0 +1,23 @@
+diff --git a/django/contrib/auth/migrations/0011_update_proxy_permissions.py b/django/contrib/auth/migrations/0011_update_proxy_permissions.py
+index 0e66649695..3986fc3f1b 100644
+--- a/django/contrib/auth/migrations/0011_update_proxy_permissions.py
++++ b/django/contrib/auth/migrations/0011_update_proxy_permissions.py
+@@ -24,6 +24,18 @@ def update_proxy_model_permissions(apps, schema_editor, reverse=False):
+         proxy_content_type = ContentType.objects.get_for_model(Model, for_concrete_model=False)
+         old_content_type = proxy_content_type if reverse else concrete_content_type
+         new_content_type = concrete_content_type if reverse else proxy_content_type
++        
++        # Delete permissions that already exist for the new_content_type
++        # to avoid IntegrityError during the bulk update.
++        duplicate_permission_codenames = Permission.objects.filter(
++            permissions_query,
++            content_type=new_content_type,
++        ).values_list('codename', flat=True)
++        Permission.objects.filter(
++            content_type=old_content_type,
++            codename__in=duplicate_permission_codenames,
++        ).delete()
++
+         Permission.objects.filter(
+             permissions_query,
+             content_type=old_content_type,

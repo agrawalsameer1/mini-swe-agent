@@ -1,0 +1,677 @@
+STEP: 27
+PHASE: validation
+FINAL PROMPT TOKENS: 4958
+================================================================================
+FINAL BUILT PROMPT
+================================================================================
+
+[MESSAGE 1]
+role: system
+content:
+You are a helpful assistant that can interact with a computer shell to solve programming tasks.
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 2]
+role: user
+content:
+<pr_description>
+Consider the following PR description:
+django.utils.http.parse_http_date two digit year check is incorrect
+Description
+	 
+		(last modified by Ad Timmering)
+	 
+RFC 850 does not mention this, but in RFC 7231 (and there's something similar in RFC 2822), there's the following quote:
+Recipients of a timestamp value in rfc850-date format, which uses a
+two-digit year, MUST interpret a timestamp that appears to be more
+than 50 years in the future as representing the most recent year in
+the past that had the same last two digits.
+Current logic is hard coded to consider 0-69 to be in 2000-2069, and 70-99 to be 1970-1999, instead of comparing versus the current year.
+
+</pr_description>
+
+<instructions>
+# VALIDATION PHASE
+
+You are currently in the **VALIDATION phase**.
+
+Your goal in this phase is to **validate the patch contained in `patch.txt`**.
+
+The patch has already been implemented during the EXECUTION phase.
+
+Your ONLY responsibility is to determine whether the patch is correct by
+running the **validation commands from the exploration handoff**.
+
+The exploration handoff contains:
+
+- an EXECUTION PLAN
+- a VALIDATION PLAN
+
+The **VALIDATION PLAN** specifies the commands that must be used to verify the patch.
+
+You must follow the validation plan.
+
+Do NOT invent new validation commands.
+Do NOT search the codebase for additional tests.
+Do NOT perform exploration.
+
+This phase is strictly for **running the provided validation commands and
+interpreting the results**.
+
+CRITICAL:
+Every response in this phase MUST include at least one tool call.
+Valid tool calls are ONLY:
+- `bash`
+- `switch_phase`
+
+A response with no tool call is invalid and will fail.
+You must never output a text-only response.
+</instructions>
+
+<memory_system>
+# Memory System
+
+The agent maintains two forms of memory.
+
+## Distilled Memory (long-term)
+
+This contains durable knowledge discovered during previous phases, such as:
+
+- confirmed relevant files
+- invalidated hypotheses
+- previous patch attempts
+- reproduction commands
+- important code locations
+
+Distilled memory may provide context for interpreting validation results.
+
+## Exploration Handoff (handoff from exploration)
+
+The exploration handoff contains the **validation plan** produced during
+the previous exploration phase.
+
+The validation plan specifies the exact commands that must be run to test
+whether the patch resolves the issue.
+
+These commands are the **only commands that should be used for validation**.
+
+</memory_system>
+
+<current_phase_messages>
+# CURRENT PHASE MESSAGES
+
+Your prompt will include a section called **CURRENT PHASE MESSAGES**.
+
+This section contains the transcript of the current phase, including:
+
+- your previous THOUGHT messages
+- commands you executed
+- outputs returned by those commands
+
+Use this section to remember what actions have already been performed during
+the current phase.
+
+Before running a command, check whether it has already been executed and
+whether its output is already available.
+
+You should **NOT repeat commands that have already been run** unless there is
+a clear reason to do so.
+
+Instead, use the information in CURRENT PHASE MESSAGES to decide the next
+action based on the results you have already observed.
+
+The CURRENT PHASE MESSAGES section represents the working history for the
+current phase.
+
+Even if validation is complete or has failed, you must still emit a tool call:
+- if more validation remains, call `bash`
+- if validation has failed, call `switch_phase`
+- do not output a text-only explanation
+</current_phase_messages>
+
+<recommended_workflow>
+# Recommended Validation Workflow
+
+Typical validation steps include:
+
+1. Display the contents of `patch.txt` by running:
+  `cat patch.txt`
+
+  This ensures the exact patch contents appear in the transcript for later
+  analysis and reporting.
+
+  IMPORTANT:
+  The FIRST command executed in this phase MUST be `cat patch.txt`.
+
+  However, before running it, check the **CURRENT PHASE MESSAGES** section.
+  If `cat patch.txt` has already been executed during this phase and its
+  output is visible in the transcript, do NOT run it again.
+
+2. Run each command listed in the **VALIDATION PLAN**.
+
+3. Observe the results of each command carefully.
+
+The validation commands typically include:
+
+- the original reproduction command
+- relevant existing tests for the affected module
+- broader regression-oriented checks when available
+
+If any validation command fails, errors, or indicates the bug still exists,
+the patch attempt should be considered **unsuccessful**.
+
+Do not stop with a text summary alone.
+At every step, including after a failure, you must emit a tool call.
+</recommended_workflow>
+
+<phase_switching>
+# Phase Switching (CRITICAL)
+
+If ANY validation command fails or indicates the bug is still present:
+
+- Immediately switch back to **EXPLORATION**.
+
+Call the `switch_phase` tool with:
+
+{"phase": "exploration"}
+
+Include a short explanation describing which validation command failed
+or why the patch appears incorrect.
+
+Do NOT continue running additional commands after a failure.
+
+If ALL validation commands complete successfully and the bug no longer
+reproduces, the patch should be considered **correct**.
+
+In that case, you must **submit the patch**.
+
+CRITICAL:
+If validation fails, the correct response is a `switch_phase` tool call.
+A plain explanation without `switch_phase` is invalid.
+</phase_switching>
+
+<command_rules>
+# Command Execution Rules
+
+You are operating in an environment where:
+
+1. You issue commands
+2. The system executes them in a subshell
+3. You see the results
+4. You issue the next command(s)
+
+Each response must include:
+
+1. A **THOUGHT** section explaining your reasoning
+2. At least one **tool call**
+
+Tool calls may be:
+
+- bash commands (for running validation commands)
+- switch_phase (if validation fails)
+
+CRITICAL:
+Every response must contain a tool call.
+The response is invalid if the tool call is omitted, implied, deferred, or replaced by plain text.
+</command_rules>
+
+<allowed_actions>
+# Allowed Validation Actions
+
+During validation you may:
+
+- run the validation commands from the exploration handoff
+- inspect `patch.txt`
+- interpret the outputs of validation commands
+
+</allowed_actions>
+
+<forbidden_actions>
+# Forbidden Actions in Validation
+
+During validation you MUST NOT:
+
+- explore the codebase
+- search for additional tests
+- invent new validation commands
+- modify source files
+- attempt additional patch strategies
+
+Those actions belong in **EXPLORATION** or **EXECUTION** phases.
+
+</forbidden_actions>
+
+<environment>
+# Environment Details
+
+- You have a full Linux shell environment
+- Use non-interactive flags (-y, -f) when applicable
+- Avoid interactive tools like `vim` or `nano`
+- Directory changes are not persistent between commands
+- Prefix commands with `cd` if necessary
+
+</environment>
+
+<response_format>
+# Response Format
+
+Each response must follow this format:
+
+THOUGHT:
+Explain which validation command you are running and why.
+
+Then include **one or more tool calls**.
+
+REQUIRED:
+- The response must include a real tool call on every step.
+- The final part of the response must be a tool call.
+- Never end with analysis-only text.
+
+Example of validation failure:
+<example_response>
+The reproduction command still triggers the bug. This indicates that
+the patch did not fix the issue.
+
+I should switch back to exploration so a new hypothesis can be formed.
+
+[Calls switch_phase tool: {"phase": "exploration", "reason": "Reproduction command still fails after patch."}]
+</example_response>
+
+Example of continuing validation:
+<example_response>
+I will run the next validation command from the validation plan.
+
+[Makes bash tool call: {"command": "pytest tests/rules/test_L031.py"}]
+</example_response>
+
+</response_format>
+
+<tool_requirement>
+# REQUIRED ACTION (CRITICAL)
+
+Every response MUST end with a tool call.
+
+You have exactly TWO possible actions:
+
+1. Call the `bash` tool
+2. Call the `switch_phase` tool
+
+You MUST choose one of these actions on EVERY step.
+
+A response without a tool call is INVALID.
+
+Text-only responses are INVALID.
+
+Never finish a response without a tool call.
+
+NON-NEGOTIABLE:
+- If there are remaining validation commands to run, call `bash`.
+- If validation has failed and the patch should be rejected, call `switch_phase`.
+- There is no third option.
+</tool_requirement>
+
+# Submission
+
+If all validation commands pass and the bug no longer reproduces,
+you MUST submit the patch contained in `patch.txt`.
+
+Step 1: Verify the patch
+Inspect `patch.txt` to confirm it contains the intended changes and
+that headers show `--- a/` and `+++ b/` paths.
+
+Step 2: Submit (EXACT command required)
+
+```bash
+echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt
+```
+
+If the command fails (nonzero exit status), it will not submit.
+
+<CRITICAL>
+- Creating/viewing the patch and submitting it MUST be separate commands (not combined with &&).
+- If you modify patch.txt after verifying, you SHOULD verify again before submitting.
+- You CANNOT continue working (reading, editing, testing) in any way on this task after submitting.
+</CRITICAL>
+
+</instructions>
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 3]
+role: user
+content:
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `parse_http_date` function in `django/utils/http.py` uses a hardcoded cutoff (year 70) to determine the century for 2-digit years (RFC 850 format). RFC 7231 requires a sliding window where any date more than 50 years in the future is interpreted as being in the past.
+2. **Primary Target**: `django/utils/http.py`, specifically the `parse_http_date` function (around line 158).
+3. **Logic Change**:
+    - Locate the block handling `if year < 100:`.
+    - Replace the hardcoded `if year < 70: year += 2000 else: year += 1900` logic.
+    - Implement the sliding window:
+        - Get the current year using `datetime.datetime.utcnow().year`.
+        - Calculate the potential year in the current century.
+        - If that year is more than 50 years in the future, subtract 100 years.
+4. **Implementation Details**:
+    - Current code:
+      ```python
+      if year < 100:
+          if year < 70:
+              year += 2000
+          else:
+              year += 1900
+      ```
+    - New code:
+      ```python
+      if year < 100:
+          current_year = datetime.datetime.utcnow().year
+          year += (current_year // 100) * 100
+          if year - current_year > 50:
+              year -= 100
+      ```
+5. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Create a reproduction script (e.g., `reproduce_issue.py`) that imports `parse_http_date` from `django.utils.http` and asserts that:
+    - A year 50 years in the future (relative to `utcnow()`) is parsed as the future year.
+    - A year 51 years in the future (relative to `utcnow()`) is parsed as the year from the previous century.
+    - Example (if current year is 2024): `parse_http_date` of a date with year "74" should result in 2074, while "75" should result in 1975.
+- Run the existing Django utility tests:
+    - `python tests/runtests.py utils_tests.test_http`
+- Run the reproduction script:
+    - `python reproduce_issue.py`
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 4]
+role: user
+content:
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/utils/http.py**: Contains the `parse_http_date` function (lines 158-192) which handles the parsing of HTTP date formats (RFC 1123, RFC 850, and asctime).
+- **django/utils/http.py:178-183**: The specific logic for handling two-digit years (primarily from RFC 850 dates) is located here.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The current implementation of `parse_http_date` uses a hardcoded cutoff for two-digit years:
+```python
+if year < 100:
+    if year < 70:
+        year += 2000
+    else:
+        year += 1900
+```
+This logic is outdated and does not comply with **RFC 7231, Section 7.1.1.1**, which states:
+> "Recipients of a timestamp value in rfc850-date format, which uses a two-digit year, MUST interpret a timestamp that appears to be more than 50 years in the future as representing the most recent year in the past that had the same last two digits."
+
+The current implementation uses a fixed pivot (70), whereas the RFC requires a sliding window based on the current date. As the current year progresses, the fixed pivot of 70 becomes increasingly incorrect.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+To reproduce the issue and validate the fix, a script should be used to check two-digit year parsing relative to the current year.
+
+**Reproduction Script Logic:**
+```python
+import datetime
+import calendar
+from django.utils.http import parse_http_date
+
+# Example: If current year is 2024
+# A year '75' would be 2075 (51 years in future), so it should be 1975.
+# A year '74' would be 2074 (50 years in future), so it should be 2074.
+
+def test_parsing():
+    # This requires mocking or calculating based on current time
+    now = datetime.datetime.utcnow()
+    # ... test logic ...
+```
+
+**Existing Tests:**
+```bash
+python manage.py test utils_tests.test_http
+```
+
+# FAILED PATCH ATTEMPTS
+
+*(No failed patch attempts recorded in the exploration phase.)*
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 5]
+role: user
+content:
+=== CURRENT PHASE MESSAGES ===
+These messages contain the transcript of the current phase, including your previous actions, command outputs, and reasoning.
+Use this information to decide whether to continue the phase or switch phases.
+
+STEP 1
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "cat patch.txt"}
+
+STEP 2
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+diff --git a/django/utils/http.py b/django/utils/http.py
+index 572cfb4347..0887f2d360 100644
+--- a/django/utils/http.py
++++ b/django/utils/http.py
+@@ -176,10 +176,10 @@ def parse_http_date(date):
+     try:
+         year = int(m.group('year'))
+         if year < 100:
+-            if year < 70:
+-                year += 2000
+-            else:
+-                year += 1900
++            current_year = datetime.datetime.utcnow().year
++            year += (current_year // 100) * 100
++            if year - current_year > 50:
++                year -= 100
+         month = MONTHS.index(m.group('mon').lower()) + 1
+         day = int(m.group('day'))
+         hour = int(m.group('hour'))
+</output>
+
+STEP 3
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "cat <<EOF > reproduce_issue.py\nimport datetime\nfrom django.utils.http import parse_http_date\n\ndef test_parse_http_date_sliding_window():\n    now = datetime.datetime.utcnow()\n    current_year = now.year\n    century = (current_year // 100) * 100\n    \n    # Test 50 years in the future\n    year_50_future = (current_year + 50) % 100\n    date_str_50 = f\"Sunday, 06-Nov-{year_50_future:02d} 08:49:37 GMT\"\n    parsed_50 = datetime.datetime.utcfromtimestamp(parse_http_date(date_str_50))\n    print(f\"Current year: {current_year}, Input year: {year_50_future:02d}, Parsed year: {parsed_50.year}\")\n    assert parsed_50.year == current_year + 50\n    \n    # Test 51 years in the future\n    year_51_future = (current_year + 51) % 100\n    date_str_51 = f\"Sunday, 06-Nov-{year_51_future:02d} 08:49:37 GMT\"\n    parsed_51 = datetime.datetime.utcfromtimestamp(parse_http_date(date_str_51))\n    print(f\"Current year: {current_year}, Input year: {year_51_future:02d}, Parsed year: {parsed_51.year}\")\n    assert parsed_51.year == current_year + 51 - 100\n\nif __name__ == \"__main__\":\n    try:\n        test_parse_http_date_sliding_window()\n        print(\"Reproduction script passed!\")\n    except AssertionError as e:\n        print(f\"Reproduction script failed!\")\n        exit(1)\n    except Exception as e:\n        print(f\"An error occurred: {e}\")\n        exit(1)\nEOF\n\npython reproduce_issue.py\n"}
+
+STEP 4
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+Current year: 2026, Input year: 76, Parsed year: 2076
+Current year: 2026, Input year: 77, Parsed year: 1977
+Reproduction script passed!
+</output>
+
+STEP 5
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "python tests/runtests.py utils_tests.test_http"}
+
+STEP 6
+TOOL RESULT:
+return_code: 1
+output:
+<returncode>1</returncode>
+<output>
+Traceback (most recent call last):
+  File "/testbed/tests/runtests.py", line 14, in <module>
+    import django
+ModuleNotFoundError: No module named 'django'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/testbed/tests/runtests.py", line 16, in <module>
+    raise RuntimeError(
+RuntimeError: Django module not found, reference tests/README.rst for instructions.
+</output>
+
+STEP 7
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "export PYTHONPATH=$PYTHONPATH:.\npython tests/runtests.py utils_tests.test_http\n"}
+
+STEP 8
+TOOL RESULT:
+return_code: 1
+output:
+<returncode>1</returncode>
+<output>
+Traceback (most recent call last):
+  File "/testbed/tests/runtests.py", line 22, in <module>
+    from django.db import connection, connections
+  File "/testbed/django/db/__init__.py", line 2, in <module>
+    from django.db.utils import (
+  File "/testbed/django/db/utils.py", line 5, in <module>
+    from asgiref.local import Local
+ModuleNotFoundError: No module named 'asgiref'
+</output>
+
+STEP 9
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "pip install asgiref\nexport PYTHONPATH=$PYTHONPATH:.\npython tests/runtests.py utils_tests.test_http\n"}
+
+STEP 10
+TOOL RESULT:
+return_code: 1
+output:
+<returncode>1</returncode>
+<output>
+Collecting asgiref
+  Downloading asgiref-3.11.1-py3-none-any.whl.metadata (9.3 kB)
+Downloading asgiref-3.11.1-py3-none-any.whl (24 kB)
+Installing collected packages: asgiref
+Successfully installed asgiref-3.11.1
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+Traceback (most recent call last):
+  File "/testbed/tests/runtests.py", line 23, in <module>
+    from django.test import TestCase, TransactionTestCase
+  File "/testbed/django/test/__init__.py", line 3, in <module>
+    from django.test.client import Client, RequestFactory
+  File "/testbed/django/test/client.py", line 14, in <module>
+    from django.core.handlers.base import BaseHandler
+  File "/testbed/django/core/handlers/base.py", line 8, in <module>
+    from django.urls import get_resolver, set_urlconf
+  File "/testbed/django/urls/__init__.py", line 1, in <module>
+    from .base import (
+  File "/testbed/django/urls/base.py", line 9, in <module>
+    from .exceptions import NoReverseMatch, Resolver404
+  File "/testbed/django/urls/exceptions.py", line 1, in <module>
+    from django.http import Http404
+  File "/testbed/django/http/__init__.py", line 5, in <module>
+    from django.http.response import (
+  File "/testbed/django/http/response.py", line 15, in <module>
+    from django.core.serializers.json import DjangoJSONEncoder
+  File "/testbed/django/core/serializers/__init__.py", line 23, in <module>
+    from django.core.serializers.base import SerializerDoesNotExist
+  File "/testbed/django/core/serializers/base.py", line 7, in <module>
+    from django.db import models
+  File "/testbed/django/db/models/__init__.py", line 3, in <module>
+    from django.db.models.aggregates import *  # NOQA
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/testbed/django/db/models/aggregates.py", line 5, in <module>
+    from django.db.models.expressions import Case, Func, Star, When
+  File "/testbed/django/db/models/expressions.py", line 8, in <module>
+    from django.db.models import fields
+  File "/testbed/django/db/models/fields/__init__.py", line 11, in <module>
+    from django import forms
+  File "/testbed/django/forms/__init__.py", line 6, in <module>
+    from django.forms.boundfield import *  # NOQA
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/testbed/django/forms/boundfield.py", line 3, in <module>
+    from django.forms.utils import flatatt, pretty_name
+  File "/testbed/django/forms/utils.py", line 6, in <module>
+    from django.utils import timezone
+  File "/testbed/django/utils/timezone.py", line 9, in <module>
+    import pytz
+ModuleNotFoundError: No module named 'pytz'
+</output>
+
+--------------------------------------------------------------------------------
+
+
+================================================================================
+MODEL RESPONSE
+================================================================================
+
+{'content': None,
+ 'extra': {'actions': [{'command': 'pip install pytz\n'
+                                   'export PYTHONPATH=$PYTHONPATH:.\n'
+                                   'python tests/runtests.py '
+                                   'utils_tests.test_http\n',
+                        'tool': 'bash',
+                        'tool_call_id': 'call_f95a75071a3c4903b23a1f867098__thought__CiEBjz1rX3SqeQctcJNiLpdhCuDf7EPZ2V+BJK0YXciIZLA='}],
+           'cost': 0.0029815,
+           'phase': 'validation',
+           'response': {'choices': [{'finish_reason': 'tool_calls',
+                                     'index': 0,
+                                     'message': {'content': None,
+                                                 'function_call': None,
+                                                 'images': [],
+                                                 'provider_specific_fields': {'thought_signatures': ['CiEBjz1rX3SqeQctcJNiLpdhCuDf7EPZ2V+BJK0YXciIZLA=']},
+                                                 'role': 'assistant',
+                                                 'thinking_blocks': [],
+                                                 'tool_calls': [{'function': {'arguments': '{"command": '
+                                                                                           '"pip '
+                                                                                           'install '
+                                                                                           'pytz\\nexport '
+                                                                                           'PYTHONPATH=$PYTHONPATH:.\\npython '
+                                                                                           'tests/runtests.py '
+                                                                                           'utils_tests.test_http\\n"}',
+                                                                              'name': 'bash'},
+                                                                 'id': 'call_f95a75071a3c4903b23a1f867098__thought__CiEBjz1rX3SqeQctcJNiLpdhCuDf7EPZ2V+BJK0YXciIZLA=',
+                                                                 'index': 0,
+                                                                 'provider_specific_fields': {'thought_signature': 'CiEBjz1rX3SqeQctcJNiLpdhCuDf7EPZ2V+BJK0YXciIZLA='},
+                                                                 'type': 'function'}]}}],
+                        'created': 1773208599,
+                        'id': 'FwSxaZy6DOyeq8YP3qm5gAk',
+                        'model': 'gemini-3-flash-preview',
+                        'object': 'chat.completion',
+                        'system_fingerprint': None,
+                        'usage': {'cache_read_input_tokens': None,
+                                  'completion_tokens': 33,
+                                  'completion_tokens_details': {'text_tokens': 33},
+                                  'prompt_tokens': 5765,
+                                  'prompt_tokens_details': {'audio_tokens': None,
+                                                            'cached_tokens': None,
+                                                            'image_tokens': None,
+                                                            'text_tokens': 5765},
+                                  'total_tokens': 5798},
+                        'vertex_ai_citation_metadata': [],
+                        'vertex_ai_grounding_metadata': [],
+                        'vertex_ai_safety_results': [],
+                        'vertex_ai_url_context_metadata': []},
+           'step_index': 27,
+           'timestamp': 1773208601.002351},
+ 'function_call': None,
+ 'images': [],
+ 'provider_specific_fields': {'thought_signatures': ['CiEBjz1rX3SqeQctcJNiLpdhCuDf7EPZ2V+BJK0YXciIZLA=']},
+ 'role': 'assistant',
+ 'thinking_blocks': [],
+ 'tool_calls': [{'function': {'arguments': '{"command": "pip install '
+                                           'pytz\\nexport '
+                                           'PYTHONPATH=$PYTHONPATH:.\\npython '
+                                           'tests/runtests.py '
+                                           'utils_tests.test_http\\n"}',
+                              'name': 'bash'},
+                 'id': 'call_f95a75071a3c4903b23a1f867098__thought__CiEBjz1rX3SqeQctcJNiLpdhCuDf7EPZ2V+BJK0YXciIZLA=',
+                 'index': 0,
+                 'provider_specific_fields': {'thought_signature': 'CiEBjz1rX3SqeQctcJNiLpdhCuDf7EPZ2V+BJK0YXciIZLA='},
+                 'type': 'function'}]}

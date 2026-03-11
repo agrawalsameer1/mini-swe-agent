@@ -1,0 +1,67 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/models/query_utils.py**:
+    - `Q._combine` (lines 43-58): The entry point for bitwise operations on `Q` objects. It currently enforces a strict `isinstance(other, Q)` check, causing `Q() & Exists(...)` to fail with a `TypeError`.
+    - `Q.deconstruct` (lines 80-95): Logic for serializing `Q` objects. It assumes that if `len(self.children) == 1` and the child is not a `Q` instance, it must be a subscriptable tuple (e.g., `('name', 'value')`). This causes a `TypeError: 'Exists' object is not subscriptable` when a `Q` object wraps a single conditional expression.
+- **django/db/models/expressions.py**:
+    - `Combinable` mixin: Implements `__and__` and `__or__` for expressions like `Exists`. It correctly handles `Exists(...) & Q(...)` by wrapping both sides in `Q()`, but it does not implement `__rand__` or `__ror__`, leaving the responsibility to the left-hand operand (the `Q` object) when the order is reversed.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+1.  **Asymmetry in Bitwise Operations**: `Exists() & Q()` works because `Combinable.__and__` detects that both operands are "conditional" and wraps them in `Q` objects. However, `Q() & Exists()` fails because `Q._combine` does not perform a similar check for the `conditional` attribute on the `other` operand; it strictly requires an instance of `Q`.
+2.  **Deconstruction Assumption**: `Q.deconstruct` contains a logic branch for single-child `Q` objects: `kwargs = {child[0]: child[1]}`. This assumes the child is a key-value tuple. When a `Q` object is created to wrap a single conditional expression (e.g., `Q(Exists(...))`), this assumption is violated, leading to a crash during migration generation.
+3.  **Regression in RegisterLookupMixin**: A previous patch attempt modified `RegisterLookupMixin.merge_dicts` to use `*dicts` instead of a single list argument. This caused a `ValueError` in `django/db/models/fields/related.py` because that module calls `merge_dicts` with a single list of dictionaries. **Validation confirmed that any changes to `RegisterLookupMixin` in this context are likely to cause regressions.**
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+**Reproduction Script (`reproduce_issue_v3.py`)**:
+```python
+import django
+from django.conf import settings
+from django.db import models
+from django.db.models import Q, Exists
+
+if not settings.configured:
+    settings.configure(
+        DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}},
+        INSTALLED_APPS=[],
+    )
+    django.setup()
+
+class Product(models.Model):
+    name = models.CharField(max_length=100)
+    class Meta:
+        app_label = 'reproduce_app'
+
+print("Testing Exists(...) & Q()...")
+try:
+    res1 = Exists(Product.objects.all()) & Q()
+    path, args, kwargs = res1.deconstruct()
+    print("Success!")
+except Exception as e:
+    print(f"Failed: {e}")
+
+print("\nTesting Q() & Exists(...)...")
+try:
+    res2 = Q() & Exists(Product.objects.all())
+    path, args, kwargs = res2.deconstruct()
+    print("Success!")
+except Exception as e:
+    print(f"Failed: {e}")
+```
+
+**Validation Commands**:
+- `PYTHONPATH=. python reproduce_issue_v3.py`
+- `PYTHONPATH=. python tests/runtests.py queries.test_q`
+- `PYTHONPATH=. python tests/runtests.py expressions.tests`
+
+# FAILED PATCH ATTEMPTS
+
+- **Attempt 1**: Modified `Q._combine` to check `if getattr(other, "conditional", False): other = Q(other)`.
+    - **Result**: Resolved the initial `TypeError` in `_combine`, but triggered a `TypeError: 'Exists' object is not subscriptable` in `Q.deconstruct`.
+- **Attempt 2**: Applied correct `Q` fixes but included catastrophic changes to `RegisterLookupMixin` (removing `@classmethod` decorators and changing `merge_dicts` signature).
+    - **Result**: Caused `ValueError: dictionary update sequence element #0 has length 0; 2 is required` in `expressions.tests` because `RelatedField.get_lookups` passes a list to `merge_dicts`, which the patch had changed to expect `*args`.
+    - **Lesson**: The fix must be isolated to `Q._combine` and `Q.deconstruct`. Do not touch `RegisterLookupMixin`.

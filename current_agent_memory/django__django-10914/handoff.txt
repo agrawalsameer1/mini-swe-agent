@@ -1,0 +1,31 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: When `FILE_UPLOAD_PERMISSIONS` is set to `None` (the default), Django does not explicitly set permissions on uploaded files. This leads to inconsistent file permissions:
+    - `InMemoryUploadedFile` (small files) are created via `os.open` with `0o666`, resulting in permissions like `0o644` (depending on umask).
+    - `TemporaryUploadedFile` (large files) are moved from a temporary directory where they are often created with restricted `0o600` permissions by the Python `tempfile` module.
+    The fix is to set a consistent default of `0o644`.
+
+2. **Primary Target File**: `django/conf/global_settings.py`
+
+3. **Logic Change**:
+    - Locate the line `FILE_UPLOAD_PERMISSIONS = None` in `django/conf/global_settings.py`.
+    - Change it to `FILE_UPLOAD_PERMISSIONS = 0o644`.
+
+4. **Verification**:
+    - After the change, `django.core.files.storage.FileSystemStorage.file_permissions_mode` will return `0o644` instead of `None`.
+    - In `django/core/files/storage.py`, the `_save` method contains logic:
+      ```python
+      if self.file_permissions_mode is not None:
+          os.chmod(full_path, self.file_permissions_mode)
+      ```
+    - Since the default is now `0o644`, `os.chmod` will be called for all uploaded files, ensuring consistent permissions regardless of the upload handler used.
+
+5. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+- `pip install pytz` (Required dependency for running Django setup in the reproduction script)
+- `python3 reproduce_issue.py` (This script, created during exploration, verifies that both memory-buffered and temporary-file-buffered uploads result in `0o644` permissions after the patch. Before the patch, it shows `0o644` vs `0o600`).
+- `python3 tests/runtests.py serializers.tests` (A sample test suite to ensure basic Django functionality remains intact).
+- `python3 tests/runtests.py file_storage.tests` (Specifically tests file storage and permissions logic).

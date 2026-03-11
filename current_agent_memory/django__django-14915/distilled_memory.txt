@@ -1,0 +1,42 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/forms/models.py**: Contains the `ModelChoiceIteratorValue` class.
+- **ModelChoiceIteratorValue**: This class defines `__eq__` but lacks a `__hash__` implementation. In Python 3, defining `__eq__` without `__hash__` makes the class unhashable.
+- **ModelChoiceIterator**: Uses `ModelChoiceIteratorValue` to wrap field values during iteration.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism**: The `ModelChoiceIteratorValue` class is used to represent values in model-based selection fields. Because it implements `__eq__` but not `__hash__`, Python marks the class as unhashable (`__hash__ = None`).
+- **Trigger**: When a `ModelChoiceField` or `ModelMultipleChoiceField` is used in a context where its values are checked against a dictionary or set (e.g., in some conditional logic or when checking `value in self.show_fields` where `show_fields` is a dict), a `TypeError: unhashable type: 'ModelChoiceIteratorValue'` is raised.
+- **Hypothesis**: Adding a `__hash__` method to `ModelChoiceIteratorValue` that returns `hash(self.value)` will resolve the issue, as `self.value` (typically a primary key) is expected to be hashable.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+- **Reproduction Script**:
+```python
+from django.forms.models import ModelChoiceIteratorValue
+
+def reproduce():
+    val = ModelChoiceIteratorValue(1, None)
+    d = {1: 'some_value'}
+    try:
+        # This triggers the TypeError if __hash__ is missing
+        is_in = val in d
+        print(f"Success! Is val in d? {is_in}")
+    except TypeError as e:
+        print(f"Caught expected error: {e}")
+        exit(1)
+
+if __name__ == "__main__":
+    reproduce()
+```
+- **Test Suite**:
+  - `pytest tests/model_forms/test_modelchoicefield.py`
+  - `pytest tests/model_forms/tests.py`
+
+# FAILED PATCH ATTEMPTS
+
+- None so far. The exploration phase concluded that the fix is a straightforward implementation of `__hash__` in `django/forms/models.py`.

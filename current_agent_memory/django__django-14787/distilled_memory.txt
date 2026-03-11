@@ -1,0 +1,58 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/utils/decorators.py**: This file contains the implementation of `method_decorator` and its helper function `_multi_decorate`.
+- **django/utils/decorators.py: _multi_decorate**: Specifically, the `_wrapper` inner function where the `bound_method` is created using `functools.partial`.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug occurs because `method_decorator` transforms a method into a bound method using `functools.partial` before passing it to the user-provided decorator. 
+
+1. In `_multi_decorate`, the `_wrapper` function creates `bound_method = partial(method.__get__(self, type(self)))`.
+2. `functools.partial` objects do not automatically inherit attributes like `__name__`, `__module__`, or `__qualname__` from the underlying callable.
+3. If the user-provided decorator uses `functools.wraps(func)` (or accesses `func.__name__` directly), it fails with an `AttributeError` because the `partial` object lacks these attributes.
+
+**Working Hypothesis**: Calling `functools.update_wrapper(bound_method, method)` immediately after creating the `partial` object in `_multi_decorate` will populate the necessary metadata, allowing decorators to wrap it successfully.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+### Reproduction Script
+```python
+import functools
+from django.utils.decorators import method_decorator
+
+def logger(func):
+    @functools.wraps(func)
+    def inner(*args, **kwargs):
+        try:
+            result = func(*args, **kwargs)
+        except Exception as e:
+            result = str(e)
+        finally:
+            print(f"{func.__name__} called with args: {args} and kwargs: {kwargs} resulting: {result}")
+        return result
+    return inner
+
+class Test:
+    @method_decorator(logger)
+    def hello_world(self):
+        return "hello"
+
+try:
+    Test().hello_world()
+    print("Success: Method called without AttributeError")
+except AttributeError as e:
+    print(f"Caught expected AttributeError: {e}")
+except Exception as e:
+    print(f"Caught unexpected exception: {type(e).__name__}: {e}")
+```
+
+### Validation Commands
+- `python reproduce_issue.py`: Should output "Success" instead of `AttributeError: 'functools.partial' object has no attribute '__name__'`.
+- `python -m django.test decorators`: Runs existing Django tests for decorators to ensure no regressions.
+
+# FAILED PATCH ATTEMPTS
+
+*(No failed patch attempts recorded yet for this task.)*

@@ -1,0 +1,40 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The current implementation of `BoundWidget.id_for_label` in `django/forms/boundfield.py` (at line 280) incorrectly assumes that the `id` key always exists in `self.data["attrs"]`. While this correctly addresses the need to respect custom IDs or `auto_id` settings for widgets like `CheckboxSelectMultiple`, it causes a `KeyError` when `auto_id` is set to `False` or for certain `Select` widget configurations where the ID is not explicitly passed down to the subwidget attributes.
+
+2. **Primary Target**: `django/forms/boundfield.py`, specifically the `BoundWidget.id_for_label` property.
+
+3. **Logic Change**:
+    - Modify `BoundWidget.id_for_label` to safely check for the existence of the `'id'` key in `self.data['attrs']`.
+    - If the key exists, return it (this satisfies the requirement for custom/templated IDs).
+    - If the key does **not** exist, fall back to the original generation logic: `'id_%s_%s' % (self.data['name'], self.data['index'])`.
+
+4. **Implementation Steps**:
+    - Open `django/forms/boundfield.py`.
+    - Locate the `BoundWidget` class (around line 247).
+    - Locate the `id_for_label` property (around line 279).
+    - Change the implementation from:
+      ```python
+      @property
+      def id_for_label(self):
+          return self.data["attrs"]["id"]
+      ```
+      to:
+      ```python
+      @property
+      def id_for_label(self):
+          return self.data['attrs'].get('id') or 'id_%s_%s' % (self.data['name'], self.data['index'])
+      ```
+
+5. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Run the reproduction script to ensure custom `auto_id` is respected:
+  `python3 reproduce_issue.py`
+- Run the specific test case that previously failed with a `KeyError`:
+  `PYTHONPATH=. python3 tests/runtests.py forms_tests.tests.test_forms.FormsTestCase.test_iterable_boundfield_select --parallel=1`
+- Run the full `forms_tests` suite to ensure no regressions:
+  `PYTHONPATH=. python3 tests/runtests.py forms_tests --parallel=1`

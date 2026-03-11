@@ -1,0 +1,61 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/models/fields/__init__.py**: 
+    - `Field.contribute_to_class` (around line 765): This is the primary location where `get_FIELD_display` is dynamically added to the model class using `setattr`. This method has access to the model class (`cls`).
+- **django/db/models/base.py**:
+    - Contains `_get_FIELD_display`, the internal method that `partialmethod` wraps to provide the default display logic.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism**: During model class construction, Django calls `contribute_to_class` for each field. If a field has `choices`, Django unconditionally calls `setattr(cls, 'get_%s_display' % self.name, ...)` to add the display helper. This happens after the class body has been processed, so it overwrites any method the developer manually defined with the same name in the model definition.
+- **Hypothesis**: The fix must be isolated to `contribute_to_class`. A `hasattr(cls, ...)` check before calling `setattr` in that specific method is sufficient to respect user overrides.
+- **Correction from Exploration**: Attempting to apply this `hasattr` check in other methods like `get_choices` or `formfield` (as seen in the failed attempt) is incorrect because those methods do not have the model class (`cls`) in their scope, leading to `NameError`.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+**Reproduction Script (`reproduce_bug.py`):**
+```python
+import os
+import django
+from django.conf import settings
+from django.db import models
+from django.utils.translation import gettext_lazy as _
+
+if not settings.configured:
+    settings.configure(
+        INSTALLED_APPS=[],
+        DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}}
+    )
+    django.setup()
+
+class FooBar(models.Model):
+    foo_bar = models.CharField(_("foo"), choices=[(1, 'foo'), (2, 'bar')], max_length=10)
+    class Meta:
+        app_label = 'reproduce_app'
+    def get_foo_bar_display(self):
+        return "something"
+
+if __name__ == "__main__":
+    fb = FooBar(foo_bar=1)
+    result = fb.get_foo_bar_display()
+    print(f"get_foo_bar_display() returns: {result}")
+    if result == "something":
+        print("SUCCESS: Overridden get_foo_bar_display() called.")
+    else:
+        print("FAILURE: Overridden get_foo_bar_display() NOT called.")
+        exit(1)
+```
+
+**Validation Commands:**
+- `python reproduce_bug.py`
+- `python tests/runtests.py model_fields.tests`
+
+# FAILED PATCH ATTEMPTS
+
+- **Attempt 1**: Applied the `hasattr(cls, ...)` check to `contribute_to_class`, `get_choices`, and `formfield` in `django/db/models/fields/__init__.py`.
+    - **Hypothesis**: Prevent overwriting in all locations where choice-related display logic might be initialized.
+    - **Result**: Failed with `NameError: name 'cls' is not defined` in `get_choices` and `formfield`.
+    - **Lesson**: The logic to prevent overwriting only belongs in `contribute_to_class`, as that is the only place where `setattr` is called on the class and where `cls` is available in the local scope. Other methods should not be modified with this logic.

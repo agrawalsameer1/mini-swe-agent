@@ -37,7 +37,7 @@ SWITCH_PHASE_TOOL = {
             "properties": {
                 "phase": {
                     "type": "string",
-                    "enum": [Phase.EXPLORATION.value, Phase.EXECUTION.value],
+                    "enum": [Phase.EXPLORATION.value, Phase.EXECUTION.value, Phase.VALIDATION.value],
                     "description": "The phase to switch to",
                 },
                 "reason": {
@@ -87,7 +87,7 @@ def parse_toolcall_actions(tool_calls: list, *, format_error_template: str) -> l
                     error_msg += "Missing 'phase' argument in switch_phase tool call."
                 if "reason" not in args:
                     error_msg += " Missing 'reason' argument in switch_phase tool call."
-                if "phase" in args and args["phase"] not in {Phase.EXPLORATION.value, Phase.EXECUTION.value}:
+                if "phase" in args and args["phase"] not in {Phase.EXPLORATION.value, Phase.EXECUTION.value, Phase.VALIDATION.value}:
                     error_msg += " Invalid 'phase' value. Must be 'exploration' or 'execution'."
 
         else:

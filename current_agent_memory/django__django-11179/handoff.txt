@@ -1,0 +1,43 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: When Django performs a "fast-delete" optimization for a single model instance with no dependencies, it returns early from the `Collector.delete()` method without clearing the instance's primary key (PK). In the standard (non-optimized) deletion path, Django explicitly sets the PK to `None` for all deleted instances.
+   - **Target File**: `django/db/models/deletion.py`
+   - **Target Method**: `Collector.delete()`
+
+2. **Modify `django/db/models/deletion.py`**:
+   - Locate the fast-path optimization block (around lines 277-282).
+   - The current code looks like this:
+     ```python
+     if len(self.data) == 1 and len(instances) == 1:
+         instance = list(instances)[0]
+         if self.can_fast_delete(instance):
+             with transaction.mark_for_rollback_on_error():
+                 count = sql.DeleteQuery(model).delete_batch([instance.pk], self.using)
+             return count, {model._meta.label: count}
+     ```
+   - Update this block to set the primary key attribute to `None` on the `instance` before returning. Use `setattr(instance, model._meta.pk.attname, None)` to match the logic used in the standard deletion path (found around line 326).
+   - The updated block should look like this:
+     ```python
+     if len(self.data) == 1 and len(instances) == 1:
+         instance = list(instances)[0]
+         if self.can_fast_delete(instance):
+             with transaction.mark_for_rollback_on_error():
+                 count = sql.DeleteQuery(model).delete_batch([instance.pk], self.using)
+             setattr(instance, model._meta.pk.attname, None)
+             return count, {model._meta.label: count}
+     ```
+
+3. **Run Validation**: Execute the validation commands to ensure the fix works and doesn't break existing functionality.
+
+# VALIDATION PLAN
+
+- **Reproduction Script**: Run the `reproduce_issue.py` script created during exploration. It should now output "SUCCESS: PK cleared after delete" and exit with code 0.
+  - `python reproduce_issue.py`
+
+- **Existing Deletion Tests**: Run Django's internal tests related to deletion to ensure no regressions in deletion logic.
+  - `python tests/runtests.py delete`
+
+- **Model Tests**: Run general model tests to ensure basic model behavior remains intact.
+  - `python tests/runtests.py model_regress`

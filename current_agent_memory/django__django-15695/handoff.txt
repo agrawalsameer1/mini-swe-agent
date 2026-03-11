@@ -1,0 +1,41 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `RenameIndex.database_backwards` method is currently a no-op when `old_fields` is used (unnamed indexes). This leaves the index with its "new" name in the database during a rollback. When the migration is re-applied, `database_forwards` fails because it cannot find the original auto-generated index name. The fix involves implementing the rollback logic to restore the auto-generated name.
+
+2. **Modify `django/db/migrations/operations/models.py`**:
+    - Locate the `RenameIndex.database_backwards` method (around line 1011).
+    - The current implementation for the `if self.old_fields:` block is incomplete or incorrect (it currently does nothing or lacks the actual rename call).
+    - Update the `if self.old_fields:` block to:
+        - Get the `from_model` from `from_state`.
+        - Resolve the column names for `self.old_fields`.
+        - Use `schema_editor._constraint_names(from_model, column_names=columns, index=True)` to find the auto-generated name that the index *should* have.
+        - Create a `current_index` object (using `models.Index`) with the name `self.new_name`.
+        - Create an `old_index` object (using `models.Index`) with the name found via `_constraint_names`.
+        - Call `schema_editor.rename_index(model, current_index, old_index)`.
+    - Ensure the `else:` block (handling named indexes) remains intact, as it correctly swaps names and calls `database_forwards`.
+
+3. **Modify `tests/migrations/test_operations.py`**:
+    - Locate `test_rename_index_unnamed_index` (around line 2988).
+    - The test currently asserts `self.assertNumQueries(0)` when calling `operation.database_backwards`.
+    - Remove the `self.assertNumQueries(0)` assertion, as the fixed implementation will now execute SQL to rename the index back.
+    - Update the assertion following the rollback: change `self.assertIndexNameExists(table_name, "new_pony_test_idx")` to assert that the index has been renamed back to its auto-generated name (or simply verify that the subsequent `database_forwards` call no longer crashes).
+
+4. **Run Validation**:
+    - Execute the validation commands to ensure the reproduction test passes and no regressions are introduced.
+
+# VALIDATION PLAN
+
+- **Run the specific reproduction test**:
+  ```bash
+  python3 tests/runtests.py migrations.test_operations.OperationTests.test_rename_index_unnamed_index
+  ```
+
+- **Run all migration operation tests to check for regressions**:
+  ```bash
+  python3 tests/runtests.py migrations.test_operations
+  ```
+
+- **Verify deconstruction logic (as mentioned in the task description)**:
+  The reproduction test already includes a deconstruction check at the end; ensure this still passes.

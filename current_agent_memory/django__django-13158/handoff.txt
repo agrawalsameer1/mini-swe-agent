@@ -1,0 +1,40 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: When `QuerySet.none()` is called on a combined query (e.g., `union()`, `intersection()`, `difference()`), the underlying `SQLQuery` is marked as empty by adding a `NothingNode` to its `where` clause. However, `SQLCompiler.get_combinator_sql` (used for combined queries) ignores the top-level `where` clause and proceeds to generate SQL for the component queries. Simply raising `EmptyResultSet` at the start of `SQLCompiler.as_sql` causes a `TypeError` because the `ModelIterable` expects the compiler's `klass_info` metadata to be populated even for empty results.
+
+2. **Primary Target File**: `django/db/models/sql/compiler.py`
+
+3. **Logic Change**:
+    - Modify `SQLCompiler.as_sql` to check if the query is empty (`self.query.is_empty()`).
+    - Crucially, this check must occur **after** `self.pre_sql_setup()` is called. `pre_sql_setup()` ensures that `self.klass_info` and `self.select` are initialized, which prevents the `TypeError` in `ModelIterable.__iter__`.
+    - If `self.query.is_empty()` is true, raise `EmptyResultSet`.
+
+4. **Specific Steps**:
+    - Open `django/db/models/sql/compiler.py`.
+    - Locate the `as_sql` method (around line 470).
+    - Ensure `extra_select, order_by, group_by = self.pre_sql_setup()` is called first.
+    - Immediately after that call, add:
+      ```python
+      if self.query.is_empty():
+          raise EmptyResultSet
+      ```
+    - Remove any previous attempts to check `is_empty()` at the very beginning of the `as_sql` method if they exist.
+
+5. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Create a reproduction script (e.g., `reproduce_issue.py`) that performs the following:
+    - Defines a simple model.
+    - Creates a unioned queryset: `qs = Model.objects.filter(id__lt=2).union(Model.objects.filter(id__gt=5))`.
+    - Calls `qs.none()`.
+    - Asserts that `list(qs.none())` is an empty list and does not raise a `TypeError`.
+    - Asserts that `qs.none().count()` returns 0.
+- Run existing Django tests for query combinators to ensure no regressions:
+    - `python ./tests/runtests.py queries`
+- Specifically check the test that previously regressed during exploration:
+    - `python ./tests/runtests.py queries.test_qs_combinators.QuerySetCombinatorTests.test_difference_with_empty_qs`
+- Run model form tests to ensure the original reported issue is resolved:
+    - `python ./tests/runtests.py model_forms`

@@ -1,0 +1,42 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `parse_http_date` function in `django/utils/http.py` uses a hardcoded cutoff (year 70) to determine the century for 2-digit years (RFC 850 format). RFC 7231 requires a sliding window where any date more than 50 years in the future is interpreted as being in the past.
+2. **Primary Target**: `django/utils/http.py`, specifically the `parse_http_date` function (around line 158).
+3. **Logic Change**:
+    - Locate the block handling `if year < 100:`.
+    - Replace the hardcoded `if year < 70: year += 2000 else: year += 1900` logic.
+    - Implement the sliding window:
+        - Get the current year using `datetime.datetime.utcnow().year`.
+        - Calculate the potential year in the current century.
+        - If that year is more than 50 years in the future, subtract 100 years.
+4. **Implementation Details**:
+    - Current code:
+      ```python
+      if year < 100:
+          if year < 70:
+              year += 2000
+          else:
+              year += 1900
+      ```
+    - New code:
+      ```python
+      if year < 100:
+          current_year = datetime.datetime.utcnow().year
+          year += (current_year // 100) * 100
+          if year - current_year > 50:
+              year -= 100
+      ```
+5. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Create a reproduction script (e.g., `reproduce_issue.py`) that imports `parse_http_date` from `django.utils.http` and asserts that:
+    - A year 50 years in the future (relative to `utcnow()`) is parsed as the future year.
+    - A year 51 years in the future (relative to `utcnow()`) is parsed as the year from the previous century.
+    - Example (if current year is 2024): `parse_http_date` of a date with year "74" should result in 2074, while "75" should result in 1975.
+- Run the existing Django utility tests:
+    - `python tests/runtests.py utils_tests.test_http`
+- Run the reproduction script:
+    - `python reproduce_issue.py`

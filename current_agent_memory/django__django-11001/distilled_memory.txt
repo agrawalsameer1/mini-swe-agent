@@ -1,0 +1,46 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **File:** `django/db/models/sql/compiler.py`
+- **Class:** `SQLCompiler`
+- **Attribute:** `self.ordering_parts` (defined in `__init__` at line 35)
+- **Methods:** 
+    - `get_order_by`: Uses `self.ordering_parts` to strip ordering directions (ASC/DESC) from SQL strings to identify duplicate columns in the `ORDER BY` clause (lines 356-360).
+    - `get_extra_select`: Also uses `self.ordering_parts` for similar logic (line 369).
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug is caused by the `ordering_parts` regular expression:
+`self.ordering_parts = re.compile(r'(.*)\s(ASC|DESC)(.*)')`
+
+By default, the `.` character in Python's `re` module does not match newlines. When a `RawSQL` expression contains multiple lines (e.g., a multiline `CASE` statement), the `(.*)` group only matches the content on the **last line** of the SQL string that precedes the `ASC` or `DESC` keyword.
+
+If two different `RawSQL` expressions have identical last lines (e.g., both end with `else null end`), the `get_order_by` method extracts only that last line as `without_ordering`. Consequently, the second expression is incorrectly identified as a duplicate of the first and is dropped from the query's `ORDER BY` clause.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+A reproduction script `reproduce_issue.py` was created which defines a model and executes a query with two distinct multiline `RawSQL` expressions that share the same final line.
+
+**Prerequisites:**
+```bash
+pip install pytz sqlparse
+```
+
+**Execution:**
+```bash
+python reproduce_issue.py
+```
+
+**Expected Failure Output:**
+`Count of 'else null end' in ORDER BY: 1`
+`FAILURE: One or more ORDER BY clauses were incorrectly removed.`
+
+**Expected Success Output (after fix):**
+`Count of 'else null end' in ORDER BY: 2`
+`SUCCESS: All ORDER BY clauses are present.`
+
+# FAILED PATCH ATTEMPTS
+
+No patch attempts have been made yet in this session. The proposed fix is to modify the regex in `django/db/models/sql/compiler.py` to use the `re.DOTALL` flag or to pre-process the SQL string to remove newlines.

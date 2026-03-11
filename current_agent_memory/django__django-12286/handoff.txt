@@ -1,0 +1,43 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The system check `translation.E004` incorrectly flags `LANGUAGE_CODE` as invalid if it is a sublanguage (e.g., `de-at`) whose base language (e.g., `de`) is present in `LANGUAGES`. The check currently uses a strict set membership check instead of Django's standard language resolution logic.
+   - **Primary Target File**: `django/core/checks/translation.py`
+   - **Target Function**: `check_language_settings_consistent`
+
+2. **Modify `django/core/checks/translation.py`**:
+   - Import `get_supported_language_variant` from `django.utils.translation`.
+   - Update the `check_language_settings_consistent` function.
+   - Instead of checking `if settings.LANGUAGE_CODE not in available_tags:`, use a `try-except` block:
+     ```python
+     from django.utils.translation import get_supported_language_variant
+     # ...
+     try:
+         get_supported_language_variant(settings.LANGUAGE_CODE)
+     except LookupError:
+         return [E004]
+     ```
+   - Note: `get_supported_language_variant` already accounts for the default `en-us` and the contents of `settings.LANGUAGES`.
+
+3. **Run Validation**:
+   - Execute the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- **Reproduction Script**: Run the script created during exploration to verify the fix for the reported case.
+  ```bash
+  python3 reproduce_issue.py
+  ```
+  *(Expected output: "SUCCESS: translation.E004 not raised")*
+
+- **Existing Translation Checks**: Run the existing test suite for translation system checks to ensure no regressions.
+  ```bash
+  python3 tests/runtests.py check_framework.test_translation
+  ```
+
+- **Verify Fallback Logic**: Run a one-liner to ensure `get_supported_language_variant` behaves as expected with the new logic (similar to the exploration step).
+  ```bash
+  python3 -c "from django.conf import settings; import django; settings.configure(LANGUAGE_CODE='de-at', LANGUAGES=[('de', 'German')], INSTALLED_APPS=[]); django.setup(); from django.core.checks.translation import check_language_settings_consistent; print('Errors:', check_language_settings_consistent(None))"
+  ```
+  *(Expected output: "Errors: []")*

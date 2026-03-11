@@ -1,0 +1,67 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/models/sql/compiler.py**: The `get_group_by` method (lines 56-140) is responsible for constructing the final `GROUP BY` clause. It automatically adds columns from the `select` clause to the `GROUP BY` set.
+- **django/db/models/sql/query.py**: Contains logic for handling `values()` and `annotate()` calls via `set_values` (line 2080) and `set_group_by` (line 1911).
+- **django/db/models/query.py**: Handles slicing of QuerySets, which sets `is_sliced` on the underlying `Query` object.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug occurs when a sliced `values()` QuerySet containing an annotation is used as a subquery in a filter (e.g., `Model.objects.filter(id=subquery[:1])`).
+
+**Mechanism:**
+1.  When a QuerySet is sliced, it is often treated as a subquery.
+2.  If the subquery was created using `.values('some_field').annotate(m=Max('id')).values('m')`, it has a specific `GROUP BY` on `some_field`.
+3.  When this sliced QuerySet is used in a filter like `filter(id=...)`, Django's subquery logic attempts to ensure the subquery selects the correct column (`id`).
+4.  In `django/db/models/sql/compiler.py`, the `get_group_by` method iterates over the `select` clause and adds all columns to the `GROUP BY` list.
+5.  Because the subquery's `select` clause is modified to include the primary key (to match the outer filter), `get_group_by` adds that primary key to the `GROUP BY` clause.
+6.  This results in a query like `SELECT U0.id ... GROUP BY U0.some_field, U0.id`, which effectively breaks the intended grouping by the original field.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+The following script reproduces the issue by checking the generated SQL of a filtered QuerySet using a sliced subquery:
+
+```python
+import os
+import django
+from django.conf import settings
+from django.db.models import Max
+from django.db import connection
+
+if not settings.configured:
+    settings.configure(
+        DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}},
+        INSTALLED_APPS=['reproduce_app'],
+    )
+    django.setup()
+
+from django.db import models
+
+class MyUser(models.Model):
+    username = models.CharField(max_length=100)
+    email = models.EmailField(null=True)
+    class Meta:
+        app_label = 'reproduce_app'
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.create_model(MyUser)
+
+# Subquery with values, annotation, and another values call
+a = MyUser.objects.filter(email__isnull=True).values('email').annotate(m=Max('id')).values('m')
+# Filter using a slice of the subquery
+b = MyUser.objects.filter(id=a[:1])
+
+subquery_sql = str(b.query)
+# The bug is present if the subquery groups by the ID instead of (or in addition to) the email
+if 'GROUP BY U0."email"' in subquery_sql and 'U0."id"' not in subquery_sql.split('GROUP BY')[1]:
+    print("\nSUCCESS: GROUP BY is correct")
+else:
+    print("\nFAILURE: GROUP BY is incorrect")
+    print(subquery_sql)
+```
+
+# FAILED PATCH ATTEMPTS
+
+*(No failed patch attempts recorded yet for this task.)*

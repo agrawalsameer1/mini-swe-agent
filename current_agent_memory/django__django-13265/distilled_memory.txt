@@ -1,0 +1,30 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- `django/db/migrations/autodetector.py`: Contains the logic for generating migration operations in a specific sequence.
+    - `generate_created_models`: Handles operation generation for new models. It currently adds `AlterOrderWithRespectTo` before `AddIndex` and `AddConstraint`, but the dependencies for the latter do not explicitly include the `_order` field creation.
+    - `_detect_changes`: Orchestrates the order of operation generation for altered models.
+- `django/db/migrations/operations/models.py`: Contains `AlterOrderWithRespectTo`, which is responsible for creating the `_order` column in the database.
+- `django/db/models/indexes.py`: The `Index.create_sql` method fails if it references `_order` before the field exists in the model state.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism**: When a model has `order_with_respect_to` set, Django creates a virtual `_order` field. If an `Index` or `Constraint` also references this `_order` field, the migration autodetector may place the `AddIndex`/`AddConstraint` operation before the `AlterOrderWithRespectTo` operation (which physically creates the column).
+- **Dependency Issue**: Even if the operations are generated in the correct order in the `operations` list, the lack of explicit dependencies on the `_order` field (or the operation that creates it) can lead to issues during migration execution or optimization.
+- **Hypothesis**: The `AddIndex`, `AddConstraint`, `AlterUniqueTogether`, and `AlterIndexTogether` operations must explicitly depend on the `AlterOrderWithRespectTo` operation if it exists for that model, or the autodetector must strictly guarantee their relative order by ensuring `AlterOrderWithRespectTo` is processed first.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+- `python3 test_autodetector_order.py`: A script that uses `MigrationAutodetector` to compare a `ProjectState` with a new model containing both `order_with_respect_to` and an `Index` on `_order`. It checks the order of generated operations.
+- `python3 reproduce_issue.py`: A script that attempts to execute a migration containing an index on `_order` before the `AlterOrderWithRespectTo` operation, which should trigger the `FieldDoesNotExist` error.
+
+# FAILED PATCH ATTEMPTS
+
+- **Attempt 1**: Reordering calls in `_detect_changes` and `generate_created_models`.
+    - **Result**: Failed due to a `SyntaxError` (unclosed parenthesis).
+- **Attempt 2**: Similar reordering logic.
+    - **Result**: Failed with `FieldDoesNotExist`.
+    - **Reason**: The patch was malformed (stray lines) and did not correctly handle the dependency of `AlterOrderWithRespectTo` on the field it refers to, or failed to ensure that subsequent index operations waited for the `_order` field to be available.
+- **Attempt 3 (Exploration)**: Attempted to run reproduction scripts that failed due to Django environment setup issues (conflicting models in app registry). This was resolved by using existing app labels like `auth` in the test scripts.

@@ -1,0 +1,42 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `create_test_db` method in `django/db/backends/base/creation.py` attempts to serialize the database state into a string even when the `MIGRATE` test setting is set to `False`. Since migrations are skipped, the database tables do not exist, causing `serialize_db_to_string()` to fail when it tries to query models for data.
+
+2. **Primary Target File**: `django/db/backends/base/creation.py`
+
+3. **Logic Change**:
+    - Locate the `create_test_db` method in `BaseDatabaseCreation` class.
+    - Find the block where `self.serialize_db_to_string()` is called (around line 114-115).
+    - Modify the condition to check if `MIGRATE` is enabled before attempting serialization.
+    - The current code looks like:
+      ```python
+      if serialize:
+          self.connection._test_serialized_contents = self.serialize_db_to_string()
+      ```
+    - The updated code should look like:
+      ```python
+      if serialize and self.connection.settings_dict['TEST']['MIGRATE']:
+          self.connection._test_serialized_contents = self.serialize_db_to_string()
+      ```
+
+4. **Verification**:
+    - Run the reproduction script `reproduce_issue.py` created during exploration.
+    - Ensure it no longer throws `django.db.utils.OperationalError: no such table`.
+    - Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- **Reproduction Script**: Run the script that demonstrates the crash when `MIGRATE` is `False`.
+  - `python3 reproduce_issue.py`
+
+- **Regression Check (Serialization)**: Run existing tests that involve database serialization to ensure no regressions when `MIGRATE` is `True` (default).
+  - `python3 tests/runtests.py test_utils.tests.TestSetupDatabases`
+  - `python3 tests/runtests.py servers.tests.LiveServerDatabase`
+
+- **General Database Creation Tests**:
+  - `python3 tests/runtests.py backends.base.test_creation` (Note: if this file path is slightly different, use `find django -name "*test_creation.py*"` to locate it, though exploration suggested checking `tests/` directory).
+
+- **Broad Test Suite**: Run a subset of tests that use `TransactionTestCase` (which triggers serialization).
+  - `python3 tests/runtests.py basic.tests.ModelTest`

@@ -1,0 +1,33 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `check_for_template_tags_with_the_same_name` function in `django/core/checks/templates.py` incorrectly flags a template tag library as a duplicate if it is registered both via `INSTALLED_APPS` (automatically discovered) and explicitly via the `libraries` option in `TEMPLATES['OPTIONS']`, even if both entries point to the exact same module path.
+
+2. **Primary Target File**: `django/core/checks/templates.py`
+   - **Function**: `check_for_template_tags_with_the_same_name`
+
+3. **Logic Change**:
+   - Currently, the function uses a `defaultdict(list)` to collect all module paths associated with a template tag library name.
+   - It iterates through `settings.TEMPLATES` and appends paths from the `libraries` option to the list.
+   - It then iterates through `get_template_tag_modules()` and appends those paths to the same list.
+   - Finally, it reports an error if the length of the list for any library name is greater than 1.
+   - **The Fix**: Change the collection mechanism to ensure that only *distinct* module paths are counted for each library name. This can be achieved by using a `set` instead of a `list` in the `defaultdict`, or by converting the list to a set before checking the length.
+
+4. **Step-by-Step Implementation**:
+   - Open `django/core/checks/templates.py`.
+   - Locate the `check_for_template_tags_with_the_same_name` function.
+   - Modify the initialization of the `libraries` variable to `defaultdict(set)`.
+   - Change the `.append(module_path)` calls to `.add(module_path)`.
+   - Ensure the error reporting logic still correctly iterates over the unique items in the set.
+
+5. **Final Step**:
+   - Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Run the reproduction script created during exploration to ensure the `templates.E003` error is no longer raised for the same module path:
+  `python3 reproduce_issue.py`
+- Run existing tests for the check framework's template checks to ensure no regressions:
+  `python3 tests/runtests.py check_framework.test_templates`
+- Verify that actual duplicates (different paths, same name) still trigger the error by temporarily modifying `reproduce_issue.py` to point to a different (even if non-existent) module path for the same library name.

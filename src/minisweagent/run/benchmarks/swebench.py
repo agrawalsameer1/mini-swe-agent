@@ -69,9 +69,9 @@ class ProgressTrackingAgent(DefaultAgent):
     """Simple wrapper around DefaultAgent that provides progress updates."""
 
     def __init__(self, *args, progress_manager: RunBatchProgressManager, instance_id: str = "", **kwargs):
-        super().__init__(*args, **kwargs)
-        self.progress_manager: RunBatchProgressManager = progress_manager
         self.instance_id = instance_id
+        super().__init__(*args, instance_id=instance_id, **kwargs)
+        self.progress_manager: RunBatchProgressManager = progress_manager
 
     def step(self) -> dict:
         """Override step to provide progress updates."""

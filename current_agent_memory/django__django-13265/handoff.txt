@@ -1,0 +1,29 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `MigrationAutodetector` generates `AddIndex` and `AddConstraint` operations before `AlterOrderWithRespectTo` when a model is created or altered. Since the `_order` field is only physically created in the database by the `AlterOrderWithRespectTo` operation, any index or constraint referencing `_order` fails with a `FieldDoesNotExist` error during migration execution. The fix involves ensuring `AlterOrderWithRespectTo` is generated and ordered before any operations that might reference the `_order` field.
+
+2. **Target File**: `django/db/migrations/autodetector.py`
+
+3. **Logic Change in `generate_created_models`**:
+    - Locate the `generate_created_models` method (around line 630).
+    - Ensure the `AlterOrderWithRespectTo` operation is added to the migration before `AddIndex`, `AddConstraint`, `AlterUniqueTogether`, and `AlterIndexTogether`.
+    - Update the `related_dependencies` list used by subsequent operations (indexes/constraints) to include a dependency on the `AlterOrderWithRespectTo` operation if `order_with_respect_to` is set. This ensures that even if the operations are reordered by the optimizer, the dependency remains explicit.
+    - Specifically, if `order_with_respect_to` is present, add `(app_label, model_name, '_order', True)` to `related_dependencies`.
+
+4. **Logic Change in `_detect_changes`**:
+    - Locate the `_detect_changes` method (around line 185).
+    - Verify that `self.generate_altered_order_with_respect_to()` is called before `self.generate_added_indexes()` and `self.generate_added_constraints()`.
+    - If it is already called before, ensure that the `AlterOrderWithRespectTo` operation itself correctly signals that it provides the `_order` field so that the dependency graph respects it.
+
+5. **Final Step**:
+    - Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+- Create and run a reproduction script `reproduce_issue.py` that defines a model with `order_with_respect_to` and an `Index` referencing `_order`, then attempts to run `makemigrations` and `migrate`.
+- Run the existing Django migration tests to ensure no regressions:
+    - `python3 tests/runtests.py migrations`
+- Run the autodetector specific tests:
+    - `python3 tests/runtests.py migrations.test_autodetector`
+- Verify the order of operations in the generated migration file for the reproduction case using a script similar to `test_autodetector_order.py` from the exploration phase.

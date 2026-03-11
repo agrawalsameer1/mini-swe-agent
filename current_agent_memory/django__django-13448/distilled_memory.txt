@@ -1,0 +1,72 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/backends/base/creation.py**: The `BaseDatabaseCreation.create_test_db` method contains the logic that triggers database serialization. Specifically, it calls `self.serialize_db_to_string()` regardless of whether migrations were actually run.
+- **django/test/utils.py**: The `setup_databases` function calls `connection.creation.create_test_db` and passes the `serialize` parameter (defaulting to `True` or the value of `TEST['SERIALIZE']`).
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug occurs because Django attempts to serialize the state of the test database even when migrations have been disabled via the `'TEST': {'MIGRATE': False}` setting. 
+
+1. When `MIGRATE` is `False`, `create_test_db` skips the `call_command('migrate', ...)` step.
+2. However, the code immediately follows this with a check for `if serialize:`, which defaults to `True`.
+3. `serialize_db_to_string()` iterates through all installed apps and attempts to query their models to generate a JSON representation of the database state.
+4. Since no migrations were run, the underlying database tables do not exist.
+5. This results in a `django.db.utils.OperationalError` (or `psycopg2.errors.UndefinedTable` on PostgreSQL) because the serializer tries to `SELECT` from non-existent tables.
+
+**Working Hypothesis**: Serialization should only be performed if migrations were actually executed, as the purpose of serialization is to capture the post-migration state for `TransactionTestCase` restoration. If `MIGRATE` is `False`, the database is assumed to be in a state where serialization is either impossible (no tables) or unnecessary.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+A reproduction script `reproduce_issue.py` was created. It requires `asgiref`, `pytz`, and `sqlparse` to be installed in the environment.
+
+```python
+import os
+import sys
+import django
+from django.conf import settings
+from django.test.utils import setup_databases
+
+if not settings.configured:
+    settings.configure(
+        DATABASES={
+            'default': {
+                'ENGINE': 'django.db.backends.sqlite3',
+                'NAME': ':memory:',
+                'TEST': {
+                    'MIGRATE': False,
+                },
+            }
+        },
+        INSTALLED_APPS=[
+            'django.contrib.contenttypes',
+            'django.contrib.auth',
+            'django.contrib.admin',
+            'django.contrib.messages',
+            'django.contrib.sessions',
+        ],
+        SECRET_KEY='fake-key',
+    )
+
+django.setup()
+
+try:
+    setup_databases(verbosity=1, interactive=False)
+    print("Successfully setup databases")
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+```
+
+**Execution Command:**
+```bash
+pip install asgiref pytz sqlparse
+python3 reproduce_issue.py
+```
+
+# FAILED PATCH ATTEMPTS
+
+No patch attempts have been made yet. The exploration phase concluded with a confirmed reproduction and a clear target for modification in `django/db/backends/base/creation.py`.

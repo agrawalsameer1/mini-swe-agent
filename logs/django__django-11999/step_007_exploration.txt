@@ -1,0 +1,609 @@
+STEP: 7
+PHASE: exploration
+FINAL PROMPT TOKENS: 6110
+================================================================================
+FINAL BUILT PROMPT
+================================================================================
+
+[MESSAGE 1]
+role: system
+content:
+You are a helpful assistant that can interact with a computer shell to solve programming tasks.
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 2]
+role: user
+content:
+<pr_description>
+Consider the following PR description:
+Cannot override get_FOO_display() in Django 2.2+.
+Description
+	
+I cannot override the get_FIELD_display function on models since version 2.2. It works in version 2.1.
+Example:
+class FooBar(models.Model):
+	foo_bar = models.CharField(_("foo"), choices=[(1, 'foo'), (2, 'bar')])
+	def __str__(self):
+		return self.get_foo_bar_display() # This returns 'foo' or 'bar' in 2.2, but 'something' in 2.1
+	def get_foo_bar_display(self):
+		return "something"
+What I expect is that I should be able to override this function.
+
+</pr_description>
+
+<instructions>
+# EXPLORATION PHASE
+
+You are currently in the **EXPLORATION phase**.
+
+Your goal for the current phase is to understand the bug and gather enough information to
+produce a **single concrete patch attempt**.
+
+Exploration will produce a handoff that contains:
+
+- an **EXECUTION PLAN** describing exactly how to implement the patch
+- a **VALIDATION PLAN** containing commands to verify the patch
+
+Exploration should focus on:
+
+- reading relevant code
+- locating the bug mechanism
+- identifying target files and functions
+- forming a plausible patch hypothesis
+- determining how the patch should be validated
+
+You must **NOT modify source files during exploration**.
+
+Once enough information exists to propose a reasonable patch attempt and
+define validation commands, you must switch phases.
+
+If you have enough information, you must switch to
+**EXECUTION phase** using the `switch_phase` tool.
+
+Exploration should be **short and decisive**.
+Do not attempt to achieve perfect certainty before switching phases.
+
+The goal is to enable a **reasonable first patch attempt**, not a perfect solution.
+
+CRITICAL:
+Every response in this phase MUST include at least one tool call.
+Valid tool calls are ONLY:
+- `bash`
+- `switch_phase`
+
+A response with no tool call is invalid and will fail.
+You must never output a text-only response.
+</instructions>
+
+<memory_system>
+# Memory System
+
+The agent maintains two forms of memory.
+
+## Distilled Memory (long-term)
+
+This contains durable knowledge discovered during previous phases, such as:
+
+- confirmed relevant files
+- invalidated hypotheses
+- previous patch attempts
+- reproduction commands
+- important code locations
+
+Treat distilled memory as reliable prior knowledge.
+
+## Execution Report (handoff from execution/validation)
+
+If present, the execution report summarizes:
+
+- the patch that was attempted
+- edits made
+- validation results
+- why the attempt failed
+- what exploration should investigate next
+
+If an execution report is present, **treat it as high-priority information**.
+The next exploration phase should focus on resolving the uncertainty described there.
+
+</memory_system>
+
+<current_phase_messages>
+# CURRENT PHASE MESSAGES
+
+Your prompt will include a section called **CURRENT PHASE MESSAGES**.
+
+This section contains the transcript of the current phase, including:
+
+- your previous THOUGHT messages
+- commands you executed
+- outputs returned by those commands
+
+Use this section to remember what actions have already been performed during
+the current phase.
+
+Before running a command, check whether it has already been executed and
+whether its output is already available.
+
+You should **NOT repeat commands that have already been run** unless there is
+a clear reason to do so.
+
+Instead, use the information in CURRENT PHASE MESSAGES to decide the next
+action based on the results you have already observed.
+
+The CURRENT PHASE MESSAGES section represents the working history for the
+current phase.
+
+Even if you decide no more exploration is needed, you must still emit a tool call:
+in that case, call `switch_phase`.
+</current_phase_messages>
+
+<recommended_workflow>
+# Recommended Exploration Workflow
+
+Typical exploration steps include:
+
+1. Identify likely relevant files
+2. Read the implementation and related functions
+3. Understand how the failing behavior occurs
+4. Form a concrete hypothesis for the bug
+5. Identify the file(s) and code region(s) that should be modified
+6. Identify commands that will validate the patch
+
+Exploration should gather enough information to later generate:
+
+- a clear **bug hypothesis**
+- specific **target files and code regions**
+- a **concrete patch idea**
+- a **set of validation commands**
+
+Validation commands should ideally include:
+
+- the reproduction command for the bug
+- relevant existing tests
+- at least one broader regression-oriented check if possible
+
+Exploration is complete if you can clearly identify:
+
+- TARGET FILES to edit
+- A PLAUSIBLE BUG HYPOTHESIS
+- A CONCRETE PATCH IDEA
+- A SET OF VALIDATION COMMANDS
+
+At that point, **switch to EXECUTION immediately** using the `switch_phase` tool.
+Do not write a summary without a tool call.
+</recommended_workflow>
+
+<phase_switching>
+# Phase Switching (CRITICAL)
+
+If the CURRENT PHASE MESSAGES, Distilled Memory, and Execution Report contain enough information to generate
+a concrete patch attempt **and validation commands**, you MUST call the `switch_phase` tool.
+
+Do NOT continue exploring indefinitely.
+
+You should switch phases if you can answer these questions:
+
+- Which file(s) should be modified?
+- What change should be made?
+- Why should that change fix the bug?
+- How will the patch be validated?
+
+You do NOT need perfect certainty.
+
+A **reasonable first patch attempt is sufficient**.
+
+The EXECUTION and VALIDATION phases will carry out the patch and testing.
+
+Continuing exploration when a viable patch plan exists is incorrect behavior.
+
+If exploration is complete, the correct response is a `switch_phase` tool call.
+A plain explanation without `switch_phase` is invalid.
+</phase_switching>
+
+<command_rules>
+# Command Execution Rules
+
+You are operating in an environment where:
+
+1. You issue commands
+2. The system executes them in a subshell
+3. You see the results
+4. You issue the next command(s)
+
+Each response must include:
+
+1. A **THOUGHT** section explaining your reasoning
+2. At least one **tool call**
+
+Tool calls may be:
+
+- bash commands (for exploration)
+- switch_phase (if exploration is complete)
+
+CRITICAL:
+Every response must contain a tool call.
+The response is invalid if the tool call is omitted, implied, deferred, or replaced by plain text.
+</command_rules>
+
+<allowed_actions>
+# Allowed Exploration Actions
+
+During exploration you may:
+
+- list files
+- search the codebase
+- read source files
+- inspect functions and modules
+- run diagnostic commands
+- examine tests or reproduction scripts
+
+Useful commands include:
+
+- `ls`
+- `grep`
+- `rg`
+- `find`
+- `cat`
+- `sed`
+- `head`
+- `tail`
+
+</allowed_actions>
+
+<forbidden_actions>
+# Forbidden Actions in Exploration
+
+During exploration you MUST NOT:
+
+- modify source files
+- create patches
+- run large refactors
+- attempt to implement the fix
+
+Code edits belong in **EXECUTION phase**.
+
+</forbidden_actions>
+
+<environment>
+# Environment Details
+
+- You have a full Linux shell environment
+- Use non-interactive flags (-y, -f) when applicable
+- Avoid interactive tools like `vim` or `nano`
+- Directory changes are not persistent between commands
+- Prefix commands with `cd` if necessary
+
+</environment>
+
+<response_format>
+# Response Format
+
+Each response must follow this format:
+
+THOUGHT:
+Explain your reasoning and what you are trying to learn.
+
+Then include **one or more tool calls**.
+
+REQUIRED:
+- The response must include a real tool call on every step.
+- The final part of the response must be a tool call.
+- Never end with analysis-only text.
+
+Example of switching phases if exploration is complete:
+<example_response>
+I have identified the likely bug location and understand how it should be fixed.
+I also know which commands should be used to validate the fix.
+
+Since I now have a bug hypothesis, target file, patch idea, and validation commands,
+exploration is complete and I should switch to execution.
+
+[Calls switch_phase tool: {"phase": "execution", "reason": "Identified target file, bug hypothesis, patch idea, and validation commands."}]
+</example_response>
+
+Example of continuing exploration:
+<example_response>
+I need to understand how the rule is implemented before forming a patch hypothesis.
+I will inspect the relevant files.
+
+[Makes multiple bash tool calls: {"command": "ls -la"}, {"command": "rg L031"}, {"command": "sed -n '1,200p' src/rules/L031.py"}]
+</example_response>
+
+</response_format>
+
+<tool_requirement>
+# REQUIRED ACTION (CRITICAL)
+
+Every response MUST end with a tool call.
+
+You have exactly TWO possible actions:
+
+1. Call the `bash` tool
+2. Call the `switch_phase` tool
+
+You MUST choose one of these actions on EVERY step.
+
+A response without a tool call is INVALID.
+
+Text-only responses are INVALID.
+
+Never finish a response without a tool call.
+
+NON-NEGOTIABLE:
+- If you want to keep exploring, call `bash`.
+- If exploration is complete, call `switch_phase`.
+- There is no third option.
+</tool_requirement>
+
+</instructions>
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 3]
+role: user
+content:
+=== CURRENT OBJECTIVE ===
+Initial exploration of the issue. Identify the relevant code implementing the behavior described in the task and prepare a patch plan.
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 4]
+role: user
+content:
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 5]
+role: user
+content:
+=== CURRENT PHASE MESSAGES ===
+These messages contain the transcript of the current phase, including your previous actions, command outputs, and reasoning.
+Use this information to decide whether to continue the phase or switch phases.
+
+STEP 1
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "cat <<EOF > reproduce_bug.py\nimport os\nimport django\nfrom django.conf import settings\nfrom django.db import models\nfrom django.utils.translation import gettext_lazy as _\n\nif not settings.configured:\n    settings.configure(\n        INSTALLED_APPS=[\n            'reproduce_app',\n        ],\n        DATABASES={\n            'default': {\n                'ENGINE': 'django.db.backends.sqlite3',\n                'NAME': ':memory:',\n            }\n        }\n    )\n    django.setup()\n\nclass FooBar(models.Model):\n    foo_bar = models.CharField(_(\"foo\"), choices=[(1, 'foo'), (2, 'bar')], max_length=10)\n    \n    def __str__(self):\n        return self.get_foo_bar_display()\n    \n    def get_foo_bar_display(self):\n        return \"something\"\n\n    class Meta:\n        app_label = 'reproduce_app'\n\nif __name__ == \"__main__\":\n    fb = FooBar(foo_bar=1)\n    print(f\"get_foo_bar_display() returns: {fb.get_foo_bar_display()}\")\n    if fb.get_foo_bar_display() == \"something\":\n        print(\"SUCCESS: Overridden get_foo_bar_display() called.\")\n    else:\n        print(\"FAILURE: Overridden get_foo_bar_display() NOT called.\")\nEOF\npython reproduce_bug.py\n"}
+
+STEP 2
+TOOL RESULT:
+return_code: 1
+output:
+<returncode>1</returncode>
+<output>
+Traceback (most recent call last):
+  File "/testbed/reproduce_bug.py", line 4, in <module>
+    from django.db import models
+  File "/testbed/django/db/__init__.py", line 2, in <module>
+    from django.db.utils import (
+  File "/testbed/django/db/utils.py", line 5, in <module>
+    from asgiref.local import Local
+ModuleNotFoundError: No module named 'asgiref'
+</output>
+
+STEP 3
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "pip install asgiref\npython reproduce_bug.py\n"}
+
+STEP 4
+TOOL RESULT:
+return_code: 1
+output:
+<returncode>1</returncode>
+<output>
+Collecting asgiref
+  Downloading asgiref-3.11.1-py3-none-any.whl.metadata (9.3 kB)
+Downloading asgiref-3.11.1-py3-none-any.whl (24 kB)
+Installing collected packages: asgiref
+Successfully installed asgiref-3.11.1
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+Traceback (most recent call last):
+  File "/testbed/reproduce_bug.py", line 4, in <module>
+    from django.db import models
+  File "/testbed/django/db/models/__init__.py", line 3, in <module>
+    from django.db.models.aggregates import *  # NOQA
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/testbed/django/db/models/aggregates.py", line 5, in <module>
+    from django.db.models.expressions import Case, Func, Star, When
+  File "/testbed/django/db/models/expressions.py", line 8, in <module>
+    from django.db.models import fields
+  File "/testbed/django/db/models/fields/__init__.py", line 11, in <module>
+    from django import forms
+  File "/testbed/django/forms/__init__.py", line 6, in <module>
+    from django.forms.boundfield import *  # NOQA
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/testbed/django/forms/boundfield.py", line 3, in <module>
+    from django.forms.utils import flatatt, pretty_name
+  File "/testbed/django/forms/utils.py", line 6, in <module>
+    from django.utils import timezone
+  File "/testbed/django/utils/timezone.py", line 9, in <module>
+    import pytz
+ModuleNotFoundError: No module named 'pytz'
+</output>
+
+STEP 5
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "pip install pytz sqlparse\npython reproduce_bug.py\n"}
+
+STEP 6
+TOOL RESULT:
+return_code: 1
+output:
+<returncode>1</returncode>
+<output>
+Collecting pytz
+  Downloading pytz-2026.1.post1-py2.py3-none-any.whl.metadata (22 kB)
+Collecting sqlparse
+  Downloading sqlparse-0.5.5-py3-none-any.whl.metadata (4.7 kB)
+Downloading pytz-2026.1.post1-py2.py3-none-any.whl (510 kB)
+Downloading sqlparse-0.5.5-py3-none-any.whl (46 kB)
+Installing collected packages: pytz, sqlparse
+Successfully installed pytz-2026.1.post1 sqlparse-0.5.5
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+Traceback (most recent call last):
+  File "/testbed/reproduce_bug.py", line 19, in <module>
+    django.setup()
+  File "/testbed/django/__init__.py", line 24, in setup
+    apps.populate(settings.INSTALLED_APPS)
+  File "/testbed/django/apps/registry.py", line 91, in populate
+    app_config = AppConfig.create(entry)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/testbed/django/apps/config.py", line 90, in create
+    module = import_module(entry)
+             ^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/lib/python3.11/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1204, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1176, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1140, in _find_and_load_unlocked
+ModuleNotFoundError: No module named 'reproduce_app'
+</output>
+
+STEP 7
+ASSISTANT THOUGHT:
+THOUGHT:
+The reproduction script failed because `reproduce_app` is not a real module. I'll fix the reproduction script to not rely on a separate app module, or just use a dummy app label. Actually, for models to be registered correctly without a real app, I can just use `app_label` in the `Meta` class, which I already did, but Django's `apps.populate` still wants to find the app in `INSTALLED_APPS`.
+
+I'll simplify the reproduction script to avoid the `INSTALLED_APPS` issue by using a minimal configuration.
+
+Wait, I can just use `django.conf.settings.configure()` with no `INSTALLED_APPS` if I'm just testing model behavior without database operations, but Django models usually need to belong to an app.
+
+Let's try to fix the reproduction script.
+
+Also, I want to find where `get_FIELD_display` is defined in Django. I'll search for it.
+
+I'll search for `get_%s_display` in the codebase. This is the typical pattern for these generated methods.
+
+THOUGHT:
+I will search for the code that generates `get_FIELD_display` and also fix the reproduction script.
+
+Actually, I'll first search for the code. It's likely in `django/db/models/base.py` or `django/db/models/fields/__init__.py`.
+
+I'll search for `get_` and `_display`.
+
+[Makes multiple bash tool calls: {"command": "grep -r \"get_\" django/db/models | grep \"_display\""}, {"command": "cat <<EOF > reproduce_bug.py\nimport os\nimport django\nfrom django.conf import settings\nfrom django.db import models\nfrom django.utils.translation import gettext_lazy as _\n\nif not settings.configured:\n    settings.configure(\n        INSTALLED_APPS=[],\n        DATABASES={\n            'default': {\n                'ENGINE': 'django.db.backends.sqlite3',\n                'NAME': ':memory:',\n            }\n        }\n    )\n    django.setup()\n\nclass FooBar(models.Model):\n    foo_bar = models.CharField(_(\"foo\"), choices=[(1, 'foo'), (2, 'bar')], max_length=10)\n    \n    class Meta:\n        app_label = 'reproduce_app'\n\n    def __str__(self):\n        return self.get_foo_bar_display()\n    \n    def get_foo_bar_display(self):\n        return \"something\"\n\nif __name__ == \"__main__\":\n    fb = FooBar(foo_bar=1)\n    print(f\"get_foo_bar_display() returns: {fb.get_foo_bar_display()}\")\n    if fb.get_foo_bar_display() == \"something\":\n        print(\"SUCCESS: Overridden get_foo_bar_display() called.\")\n    else:\n        print(\"FAILURE: Overridden get_foo_bar_display() NOT called.\")\nEOF\npython reproduce_bug.py\n"}]
+
+STEP 8
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "grep -r \"get_\" django/db/models | grep \"_display\"\ncat <<EOF > reproduce_bug.py\nimport os\nimport django\nfrom django.conf import settings\nfrom django.db import models\nfrom django.utils.translation import gettext_lazy as _\n\nif not settings.configured:\n    settings.configure(\n        INSTALLED_APPS=[],\n        DATABASES={\n            'default': {\n                'ENGINE': 'django.db.backends.sqlite3',\n                'NAME': ':memory:',\n            }\n        }\n    )\n    django.setup()\n\nclass FooBar(models.Model):\n    foo_bar = models.CharField(_(\"foo\"), choices=[(1, 'foo'), (2, 'bar')], max_length=10)\n    \n    class Meta:\n        app_label = 'reproduce_app'\n\n    def __str__(self):\n        return self.get_foo_bar_display()\n    \n    def get_foo_bar_display(self):\n        return \"something\"\n\nif __name__ == \"__main__\":\n    fb = FooBar(foo_bar=1)\n    print(f\"get_foo_bar_display() returns: {fb.get_foo_bar_display()}\")\n    if fb.get_foo_bar_display() == \"something\":\n        print(\"SUCCESS: Overridden get_foo_bar_display() called.\")\n    else:\n        print(\"FAILURE: Overridden get_foo_bar_display() NOT called.\")\nEOF\npython reproduce_bug.py\n"}
+
+STEP 9
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+grep: django/db/models/sql/__pycache__/query.cpython-311.pyc: binary file matches
+grep: django/db/models/sql/__pycache__/where.cpython-311.pyc: binary file matches
+grep: django/db/models/sql/__pycache__/datastructures.cpython-311.pyc: binary file matches
+grep: django/db/models/sql/__pycache__/subqueries.cpython-311.pyc: binary file matches
+grep: django/db/models/functions/__pycache__/text.cpython-311.pyc: binary file matches
+grep: django/db/models/functions/__pycache__/window.cpython-311.pyc: binary file matches
+grep: django/db/models/functions/__pycache__/math.cpython-311.pyc: binary file matches
+grep: django/db/models/functions/__pycache__/comparison.cpython-311.pyc: binary file matches
+grep: django/db/models/functions/__pycache__/datetime.cpython-311.pyc: binary file matches
+grep: django/db/models/functions/__pycache__/mixins.cpython-311.pyc: binary file matches
+grep: django/db/models/fields/__pycache__/files.cpython-311.pyc: binary file matches
+grep: django/db/models/fields/__pycache__/reverse_related.cpython-311.pyc: binary file matches
+grep: django/db/models/fields/__pycache__/related_descriptors.cpython-311.pyc: binary file matches
+grep: django/db/models/fields/__pycache__/related.cpython-311.pyc: binary file matches
+grep: django/db/models/fields/__pycache__/mixins.cpython-311.pyc: binary file matches
+grep: django/db/models/fields/__pycache__/__init__.cpython-311.pyc: binary file matches
+grep: django/db/models/fields/__pycache__/related_lookups.cpython-311.pyc: binary file matches
+grep: django/db/models/__pycache__/options.cpython-311.pyc: binary file matches
+grep: django/db/models/__pycache__/indexes.cpython-311.pyc: binary file matches
+grep: django/db/models/__pycache__/expressions.cpython-311.pyc: binary file matches
+grep: django/db/models/__pycache__/lookups.cpython-311.pyc: binary file matches
+grep: django/db/models/__pycache__/aggregates.cpython-311.pyc: binary file matches
+grep: django/db/models/__pycache__/manager.cpython-311.pyc: binary file matches
+grep: django/db/models/__pycache__/query.cpython-311.pyc: binary file matches
+grep: django/db/models/__pycache__/deletion.cpython-311.pyc: binary file matches
+grep: django/db/models/__pycache__/base.cpython-311.pyc: binary file matches
+grep: django/db/models/__pycache__/query_utils.cpython-311.pyc: binary file matches
+grep: django/db/models/__pycache__/constraints.cpython-311.pyc: binary file matches
+django/db/models/base.py:    def _get_FIELD_display(self, field):
+django/db/models/fields/__init__.py:            setattr(cls, 'get_%s_display' % self.name,
+django/db/models/fields/__init__.py:                    partialmethod(cls._get_FIELD_display, field=self))
+get_foo_bar_display() returns: foo
+FAILURE: Overridden get_foo_bar_display() NOT called.
+</output>
+
+STEP 10
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "cat <<EOF > reproduce_bug.py\nimport os\nimport django\nfrom django.conf import settings\nfrom django.db import models\nfrom django.utils.translation import gettext_lazy as _\n\nif not settings.configured:\n    settings.configure(\n        INSTALLED_APPS=[],\n        DATABASES={\n            'default': {\n                'ENGINE': 'django.db.backends.sqlite3',\n                'NAME': ':memory:',\n            }\n        }\n    )\n    django.setup()\n\nclass FooBar(models.Model):\n    foo_bar = models.CharField(_(\"foo\"), choices=[(1, 'foo'), (2, 'bar')], max_length=10)\n    \n    class Meta:\n        app_label = 'reproduce_app'\n\n    def get_foo_bar_display(self):\n        return \"something\"\n\nif __name__ == \"__main__\":\n    fb = FooBar(foo_bar=1)\n    print(f\"get_foo_bar_display() returns: {fb.get_foo_bar_display()}\")\n    if fb.get_foo_bar_display() == \"something\":\n        print(\"SUCCESS: Overridden get_foo_bar_display() called.\")\n    else:\n        print(\"FAILURE: Overridden get_foo_bar_display() NOT called.\")\nEOF\npython reproduce_bug.py\nsed -n '780,810p' django/db/models/fields/__init__.py\n"}
+
+STEP 11
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+get_foo_bar_display() returns: foo
+FAILURE: Overridden get_foo_bar_display() NOT called.
+        attname = self.get_attname()
+        column = self.db_column or attname
+        return attname, column
+
+    def get_internal_type(self):
+        return self.__class__.__name__
+
+    def pre_save(self, model_instance, add):
+        """Return field's value just before saving."""
+        return getattr(model_instance, self.attname)
+
+    def get_prep_value(self, value):
+        """Perform preliminary non-db specific value checks and conversions."""
+        if isinstance(value, Promise):
+            value = value._proxy____cast()
+        return value
+
+    def get_db_prep_value(self, value, connection, prepared=False):
+        """
+        Return field's value prepared for interacting with the database backend.
+
+        Used by the default implementations of get_db_prep_save().
+        """
+        if not prepared:
+            value = self.get_prep_value(value)
+        return value
+
+    def get_db_prep_save(self, value, connection):
+        """Return field's value prepared for saving into a database."""
+        return self.get_db_prep_value(value, connection=connection, prepared=False)
+
+</output>
+
+STEP 12
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "grep -nC 5 \"get_%s_display\" django/db/models/fields/__init__.py\n"}
+
+STEP 13
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+761-            # if you have a classmethod and a field with the same name, then
+762-            # such fields can't be deferred (we don't have a check for this).
+763-            if not getattr(cls, self.attname, None):
+764-                setattr(cls, self.attname, self.descriptor_class(self))
+765-        if self.choices is not None:
+766:            setattr(cls, 'get_%s_display' % self.name,
+767-                    partialmethod(cls._get_FIELD_display, field=self))
+768-
+769-    def get_filter_kwargs_for_object(self, obj):
+770-        """
+771-        Return a dict that when passed as kwargs to self.model.filter(), would
+</output>
+
+--------------------------------------------------------------------------------
+

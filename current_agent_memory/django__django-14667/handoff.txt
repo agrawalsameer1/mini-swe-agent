@@ -1,0 +1,36 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `QuerySet.only().defer()` chain fails to correctly restrict selected fields when the `defer()` call removes the last remaining field from the "only" set. This happens because `django.db.models.sql.query.Query.deferred_to_data` returns early if the set of fields is empty, regardless of whether it is in "defer" mode (exclude these) or "only" mode (include only these). In "only" mode, an empty set should still result in the primary key being selected, but the early return causes Django to fall back to selecting all fields.
+   - **Primary Target File**: `django/db/models/sql/query.py`
+   - **Target Method**: `Query.deferred_to_data`
+
+2. **Modify `django/db/models/sql/query.py`**:
+   - Locate the `deferred_to_data` method (around line 666).
+   - Find the early return condition:
+     ```python
+     field_names, defer = self.deferred_loading
+     if not field_names:
+         return
+     ```
+   - Change it to:
+     ```python
+     field_names, defer = self.deferred_loading
+     if not field_names and defer:
+         return
+     ```
+   - This change ensures that if `defer` is `False` (meaning we are in "only" mode), the method continues even if `field_names` is empty, allowing the logic below to correctly add the primary key to the selection.
+
+3. **Run Validation**:
+   - Execute the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Run the reproduction script created during exploration to verify the fix for the reported cases:
+  `python reproduce_bug.py`
+- Run existing tests for `defer` and `only` to ensure no regressions:
+  `python tests/runtests.py defer`
+  `python tests/runtests.py defer_regress`
+- Run general query tests to ensure broader stability:
+  `python tests/runtests.py queries`

@@ -1,0 +1,84 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: In Python 3.11+, dictionary views (`dict_keys`, `dict_values`, `dict_items`) are not picklable. When a Django `Q` object is initialized with one of these views (e.g., `Q(x__in={}.keys())`), it stores the view in its `children` list. Subsequent operations that trigger a deep copy (like the `|` operator) fail with a `TypeError`. The fix is to normalize these views into lists during `Q.__init__`.
+
+2. **Primary Target File**: `django/db/models/query_utils.py`
+   - **Class**: `Q`
+   - **Method**: `__init__`
+
+3. **Logic Change**:
+   - Modify `Q.__init__` to intercept `*args` and `**kwargs`.
+   - For each argument or keyword value, check if its type is one of the dictionary view types: `type({}.keys())`, `type({}.values())`, or `type({}.items())`.
+   - If it matches, convert the value to a `list`.
+   - Pass the normalized arguments to the `super().__init__` call.
+
+4. **Implementation Details**:
+   - The current implementation of `Q.__init__` should look like this:
+     ```python
+     def __init__(self, *args, _connector=None, _negated=False, **kwargs):
+         if args:
+             args = tuple(
+                 list(arg) if isinstance(arg, (type({}.keys()), type({}.values()), type({}.items())))
+                 else arg for arg in args
+             )
+         if kwargs:
+             kwargs = {
+                 k: (list(v) if isinstance(v, (type({}.keys()), type({}.values()), type({}.items()))) else v)
+                 for k, v in kwargs.items()
+             }
+         super().__init__(children=[*args, *sorted(kwargs.items())], connector=_connector, negated=_negated)
+     ```
+   - Ensure that the `deconstruct` method in the same file remains untouched and correctly indented.
+
+5. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Create and run a reproduction script `reproduce_issue.py`:
+```python
+import copy
+import sys
+import django
+from django.conf import settings
+if not settings.configured:
+    settings.configure()
+    django.setup()
+from django.db.models import Q
+
+def test_pickle_issue():
+    try:
+        keys = {1: 2}.keys()
+        q1 = Q(x__in=keys)
+        q2 = Q()
+        # This triggers Q._combine -> copy.deepcopy
+        result = q2 | q1
+        copy.deepcopy(q1)
+        print("Success: Q object is deepcopy-able")
+        return True
+    except TypeError as e:
+        print(f"Failure: {e}")
+        return False
+
+if __name__ == "__main__":
+    sys.exit(0 if test_pickle_issue() else 1)
+```
+- Run existing tests for Q objects:
+  `export PYTHONPATH=$PYTHONPATH:. && python tests/runtests.py queries.test_q`
+- Run basic model tests:
+  `export PYTHONPATH=$PYTHONPATH:. && python tests/runtests.py basic.tests`
+- Verify deconstruction logic with a script:
+```python
+import django
+from django.conf import settings
+if not settings.configured:
+    settings.configure()
+    django.setup()
+from django.db.models import Q
+keys = {1: 2}.keys()
+q = Q(x__in=keys)
+path, args, kwargs = q.deconstruct()
+assert isinstance(kwargs['x__in'], list)
+print("Deconstruct check passed")
+```

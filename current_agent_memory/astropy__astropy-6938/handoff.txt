@@ -1,0 +1,56 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The code in `astropy/io/fits/fitsrec.py` attempts to replace the exponent separator 'E' with 'D' for FITS ASCII tables using the 'D' format. However, it calls `output_field.replace(...)` without assigning the result back. Since `chararray.replace` (or string replace) returns a copy rather than modifying the array in-place, the replacement is lost, and the output incorrectly retains the 'E' separator.
+2. **Primary Target File**: `astropy/io/fits/fitsrec.py`
+3. **Target Function**: `_scale_back_ascii` (specifically around line 1263-1264).
+4. **Logic Change**:
+    - Locate the following block at the end of `_scale_back_ascii`:
+      ```python
+      # Replace exponent separator in floating point numbers
+      if 'D' in format:
+          output_field.replace(encode_ascii('E'), encode_ascii('D'))
+      ```
+    - Modify the call to perform an in-place assignment to the `output_field` slice:
+      ```python
+      # Replace exponent separator in floating point numbers
+      if 'D' in format:
+          output_field[:] = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+      ```
+5. **Verification**: Run the validation commands to ensure the 'E' is correctly replaced by 'D' in the generated FITS file.
+
+# VALIDATION PLAN
+
+- Create and run the following reproduction script (as verified in exploration):
+```python
+import numpy as np
+from astropy.io import fits
+import os
+
+filename = 'test_d_format.fits'
+if os.path.exists(filename):
+    os.remove(filename)
+
+# Create an ASCII table with a 'D' format column
+col = fits.Column(name='a', format='D20.10', array=np.array([1.23e100]))
+hdu = fits.TableHDU.from_columns([col])
+hdu.writeto(filename)
+
+# Read the file back as raw bytes to check for 'D'
+with open(filename, 'rb') as f:
+    content = f.read()
+    if b'D+100' in content:
+        print("Success: Found 'D+100'")
+    elif b'E+100' in content:
+        print("Failure: Found 'E+100' instead of 'D+100'")
+        exit(1)
+    else:
+        print("Failure: Could not find exponent in output")
+        exit(1)
+
+os.remove(filename)
+```
+- Run existing FITS tests to ensure no regressions:
+  - `/opt/miniconda3/envs/testbed/bin/python -m pytest astropy/io/fits/tests/test_table.py`
+  - `/opt/miniconda3/envs/testbed/bin/python -m pytest astropy/io/fits/tests/test_header.py`

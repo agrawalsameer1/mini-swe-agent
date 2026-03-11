@@ -1,0 +1,74 @@
+diff --git a/django/db/models/fields/__init__.py b/django/db/models/fields/__init__.py
+index 9ce46e3f73..4fc955f8a4 100644
+--- a/django/db/models/fields/__init__.py
++++ b/django/db/models/fields/__init__.py
+@@ -209,6 +209,40 @@ class Field(RegisterLookupMixin):
+             *self._check_deprecation_details(),
+         ]
+ 
++    def _check_choices_max_length(self):
++        if self.max_length is None or not self.choices:
++            return []
++
++        errors = []
++        for choice in self.choices:
++            if isinstance(choice, (list, tuple)) and len(choice) == 2:
++                value, label = choice
++                if isinstance(label, (list, tuple)):
++                    # This is a choices group
++                    for sub_choice in label:
++                        if isinstance(sub_choice, (list, tuple)) and len(sub_choice) == 2:
++                            sub_value, sub_label = sub_choice
++                            if isinstance(sub_value, (str, bytes)) and len(sub_value) > self.max_length:
++                                errors.append(
++                                    checks.Error(
++                                        "'max_length' is too small to fit the longest value in 'choices' (%d characters)." % len(sub_value),
++                                        obj=self,
++                                        id='fields.E009',
++                                    )
++                                )
++                                break
++                else:
++                    if isinstance(value, (str, bytes)) and len(value) > self.max_length:
++                        errors.append(
++                            checks.Error(
++                                "'max_length' is too small to fit the longest value in 'choices' (%d characters)." % len(value),
++                                obj=self,
++                                id='fields.E009',
++                            )
++                        )
++                        break
++        return errors
++
+     def _check_field_name(self):
+         """
+         Check if field name is valid, i.e. 1) does not end with an
+@@ -291,6 +325,7 @@ class Field(RegisterLookupMixin):
+             )
+         ]
+ 
++
+     def _check_db_index(self):
+         if self.db_index not in (None, True, False):
+             return [
+@@ -955,6 +990,7 @@ class CharField(Field):
+         return [
+             *super().check(**kwargs),
+             *self._check_max_length_attribute(**kwargs),
++            *self._check_choices_max_length(),
+         ]
+ 
+     def _check_max_length_attribute(self, **kwargs):
+@@ -2187,7 +2223,11 @@ class BinaryField(Field):
+             self.validators.append(validators.MaxLengthValidator(self.max_length))
+ 
+     def check(self, **kwargs):
+-        return [*super().check(**kwargs), *self._check_str_default_value()]
++        return [
++            *super().check(**kwargs),
++            *self._check_str_default_value(),
++            *self._check_choices_max_length(),
++        ]
+ 
+     def _check_str_default_value(self):
+         if self.has_default() and isinstance(self.default, str):

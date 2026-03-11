@@ -1,0 +1,58 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/contrib/auth/tokens.py**: Contains the `PasswordResetTokenGenerator` class. The `_make_hash_value` method is responsible for generating the data that gets hashed into the token.
+- **django/contrib/auth/base_user.py**: Defines `AbstractBaseUser`, which provides the `get_email_field_name()` method used to determine which field on the user model represents the email address.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The `PasswordResetTokenGenerator._make_hash_value` method currently includes the user's primary key, password, last login timestamp, and the token timestamp in the hash. However, it does **not** include the user's email address.
+
+Because the email is missing from the hash:
+1. A user can request a password reset.
+2. An administrator or the user can change the email address associated with the account.
+3. The original password reset token remains valid because none of the fields used in the hash (PK, password, last login) have changed.
+4. This allows a password reset to be completed even if the account's primary identifier (email) has changed, which is a security concern.
+
+**Hypothesis**: Adding the user's email address (retrieved via `user.get_email_field_name()`) to the `_make_hash_value` string will ensure that any change to the email address invalidates existing password reset tokens.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+### Environment Setup
+```bash
+pip install asgiref sqlparse pytz
+export PYTHONPATH=$PYTHONPATH:.
+```
+
+### Reproduction Script
+Create a file `tests/auth_tests/test_issue_repro.py`:
+```python
+from django.contrib.auth.models import User
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from django.test import TestCase
+
+class TokenEmailChangeTest(TestCase):
+    def test_email_change_invalidates_token(self):
+        user = User.objects.create_user('tokentestuser', 'foo@example.com', 'testpw')
+        p0 = PasswordResetTokenGenerator()
+        tk1 = p0.make_token(user)
+        self.assertIs(p0.check_token(user, tk1), True)
+        
+        # Change user's email
+        user.email = 'bar@example.com'
+        user.save()
+        
+        # The token should now be invalid
+        self.assertIs(p0.check_token(user, tk1), False, "Token should be invalid after email change")
+```
+
+### Run Validation
+```bash
+python tests/runtests.py auth_tests.test_issue_repro
+```
+
+# FAILED PATCH ATTEMPTS
+
+(No patch attempts have been made yet in this phase.)

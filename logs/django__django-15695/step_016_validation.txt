@@ -1,0 +1,848 @@
+STEP: 16
+PHASE: validation
+FINAL PROMPT TOKENS: 5998
+================================================================================
+FINAL BUILT PROMPT
+================================================================================
+
+[MESSAGE 1]
+role: system
+content:
+You are a helpful assistant that can interact with a computer shell to solve programming tasks.
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 2]
+role: user
+content:
+<pr_description>
+Consider the following PR description:
+RenameIndex() crashes when unnamed index is moving backward and forward.
+Description
+	
+RenameIndex() should restore the old auto-generated name when an unnamed index for unique_together is moving backward. Now re-applying RenameIndex() crashes. For example:
+tests/migrations/test_operations.py
+diff --git a/tests/migrations/test_operations.py b/tests/migrations/test_operations.py
+index cfd28b1b39..c0a55023bb 100644
+					
+					 a
+				 
+					
+					 b
+				 
+ class OperationTests(OperationTestBase): 
+29882988        with connection.schema_editor() as editor, self.assertNumQueries(0):
+29892989            operation.database_backwards(app_label, editor, new_state, project_state)
+29902990        self.assertIndexNameExists(table_name, "new_pony_test_idx")
+ 2991        # Re-apply renaming.
+ 2992        with connection.schema_editor() as editor:
+ 2993            operation.database_forwards(app_label, editor, project_state, new_state)
+ 2994        self.assertIndexNameExists(table_name, "new_pony_test_idx")
+29912995        # Deconstruction.
+29922996        definition = operation.deconstruct()
+29932997        self.assertEqual(definition[0], "RenameIndex")
+crashes on PostgreSQL:
+django.db.utils.ProgrammingError: relation "new_pony_test_idx" already exists
+
+</pr_description>
+
+<instructions>
+# VALIDATION PHASE
+
+You are currently in the **VALIDATION phase**.
+
+Your goal in this phase is to **validate the patch contained in `patch.txt`**.
+
+The patch has already been implemented during the EXECUTION phase.
+
+Your ONLY responsibility is to determine whether the patch is correct by
+running the **validation commands from the exploration handoff**.
+
+The exploration handoff contains:
+
+- an EXECUTION PLAN
+- a VALIDATION PLAN
+
+The **VALIDATION PLAN** specifies the commands that must be used to verify the patch.
+
+You must follow the validation plan.
+
+Do NOT invent new validation commands.
+Do NOT search the codebase for additional tests.
+Do NOT perform exploration.
+
+This phase is strictly for **running the provided validation commands and
+interpreting the results**.
+
+CRITICAL:
+Every response in this phase MUST include at least one tool call.
+Valid tool calls are ONLY:
+- `bash`
+- `switch_phase`
+
+A response with no tool call is invalid and will fail.
+You must never output a text-only response.
+</instructions>
+
+<memory_system>
+# Memory System
+
+The agent maintains two forms of memory.
+
+## Distilled Memory (long-term)
+
+This contains durable knowledge discovered during previous phases, such as:
+
+- confirmed relevant files
+- invalidated hypotheses
+- previous patch attempts
+- reproduction commands
+- important code locations
+
+Distilled memory may provide context for interpreting validation results.
+
+## Exploration Handoff (handoff from exploration)
+
+The exploration handoff contains the **validation plan** produced during
+the previous exploration phase.
+
+The validation plan specifies the exact commands that must be run to test
+whether the patch resolves the issue.
+
+These commands are the **only commands that should be used for validation**.
+
+</memory_system>
+
+<current_phase_messages>
+# CURRENT PHASE MESSAGES
+
+Your prompt will include a section called **CURRENT PHASE MESSAGES**.
+
+This section contains the transcript of the current phase, including:
+
+- your previous THOUGHT messages
+- commands you executed
+- outputs returned by those commands
+
+Use this section to remember what actions have already been performed during
+the current phase.
+
+Before running a command, check whether it has already been executed and
+whether its output is already available.
+
+You should **NOT repeat commands that have already been run** unless there is
+a clear reason to do so.
+
+Instead, use the information in CURRENT PHASE MESSAGES to decide the next
+action based on the results you have already observed.
+
+The CURRENT PHASE MESSAGES section represents the working history for the
+current phase.
+
+Even if validation is complete or has failed, you must still emit a tool call:
+- if more validation remains, call `bash`
+- if validation has failed, call `switch_phase`
+- do not output a text-only explanation
+</current_phase_messages>
+
+<recommended_workflow>
+# Recommended Validation Workflow
+
+Typical validation steps include:
+
+1. Display the contents of `patch.txt` by running:
+  `cat patch.txt`
+
+  This ensures the exact patch contents appear in the transcript for later
+  analysis and reporting.
+
+  IMPORTANT:
+  The FIRST command executed in this phase MUST be `cat patch.txt`.
+
+  However, before running it, check the **CURRENT PHASE MESSAGES** section.
+  If `cat patch.txt` has already been executed during this phase and its
+  output is visible in the transcript, do NOT run it again.
+
+2. Run each command listed in the **VALIDATION PLAN**.
+
+3. Observe the results of each command carefully.
+
+The validation commands typically include:
+
+- the original reproduction command
+- relevant existing tests for the affected module
+- broader regression-oriented checks when available
+
+If any validation command fails, errors, or indicates the bug still exists,
+the patch attempt should be considered **unsuccessful**.
+
+Do not stop with a text summary alone.
+At every step, including after a failure, you must emit a tool call.
+</recommended_workflow>
+
+<phase_switching>
+# Phase Switching (CRITICAL)
+
+If ANY validation command fails or indicates the bug is still present:
+
+- Immediately switch back to **EXPLORATION**.
+
+Call the `switch_phase` tool with:
+
+{"phase": "exploration"}
+
+Include a short explanation describing which validation command failed
+or why the patch appears incorrect.
+
+Do NOT continue running additional commands after a failure.
+
+If ALL validation commands complete successfully and the bug no longer
+reproduces, the patch should be considered **correct**.
+
+In that case, you must **submit the patch**.
+
+CRITICAL:
+If validation fails, the correct response is a `switch_phase` tool call.
+A plain explanation without `switch_phase` is invalid.
+</phase_switching>
+
+<command_rules>
+# Command Execution Rules
+
+You are operating in an environment where:
+
+1. You issue commands
+2. The system executes them in a subshell
+3. You see the results
+4. You issue the next command(s)
+
+Each response must include:
+
+1. A **THOUGHT** section explaining your reasoning
+2. At least one **tool call**
+
+Tool calls may be:
+
+- bash commands (for running validation commands)
+- switch_phase (if validation fails)
+
+CRITICAL:
+Every response must contain a tool call.
+The response is invalid if the tool call is omitted, implied, deferred, or replaced by plain text.
+</command_rules>
+
+<allowed_actions>
+# Allowed Validation Actions
+
+During validation you may:
+
+- run the validation commands from the exploration handoff
+- inspect `patch.txt`
+- interpret the outputs of validation commands
+
+</allowed_actions>
+
+<forbidden_actions>
+# Forbidden Actions in Validation
+
+During validation you MUST NOT:
+
+- explore the codebase
+- search for additional tests
+- invent new validation commands
+- modify source files
+- attempt additional patch strategies
+
+Those actions belong in **EXPLORATION** or **EXECUTION** phases.
+
+</forbidden_actions>
+
+<environment>
+# Environment Details
+
+- You have a full Linux shell environment
+- Use non-interactive flags (-y, -f) when applicable
+- Avoid interactive tools like `vim` or `nano`
+- Directory changes are not persistent between commands
+- Prefix commands with `cd` if necessary
+
+</environment>
+
+<response_format>
+# Response Format
+
+Each response must follow this format:
+
+THOUGHT:
+Explain which validation command you are running and why.
+
+Then include **one or more tool calls**.
+
+REQUIRED:
+- The response must include a real tool call on every step.
+- The final part of the response must be a tool call.
+- Never end with analysis-only text.
+
+Example of validation failure:
+<example_response>
+The reproduction command still triggers the bug. This indicates that
+the patch did not fix the issue.
+
+I should switch back to exploration so a new hypothesis can be formed.
+
+[Calls switch_phase tool: {"phase": "exploration", "reason": "Reproduction command still fails after patch."}]
+</example_response>
+
+Example of continuing validation:
+<example_response>
+I will run the next validation command from the validation plan.
+
+[Makes bash tool call: {"command": "pytest tests/rules/test_L031.py"}]
+</example_response>
+
+</response_format>
+
+<tool_requirement>
+# REQUIRED ACTION (CRITICAL)
+
+Every response MUST end with a tool call.
+
+You have exactly TWO possible actions:
+
+1. Call the `bash` tool
+2. Call the `switch_phase` tool
+
+You MUST choose one of these actions on EVERY step.
+
+A response without a tool call is INVALID.
+
+Text-only responses are INVALID.
+
+Never finish a response without a tool call.
+
+NON-NEGOTIABLE:
+- If there are remaining validation commands to run, call `bash`.
+- If validation has failed and the patch should be rejected, call `switch_phase`.
+- There is no third option.
+</tool_requirement>
+
+# Submission
+
+If all validation commands pass and the bug no longer reproduces,
+you MUST submit the patch contained in `patch.txt`.
+
+Step 1: Verify the patch
+Inspect `patch.txt` to confirm it contains the intended changes and
+that headers show `--- a/` and `+++ b/` paths.
+
+Step 2: Submit (EXACT command required)
+
+```bash
+echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt
+```
+
+If the command fails (nonzero exit status), it will not submit.
+
+<CRITICAL>
+- Creating/viewing the patch and submitting it MUST be separate commands (not combined with &&).
+- If you modify patch.txt after verifying, you SHOULD verify again before submitting.
+- You CANNOT continue working (reading, editing, testing) in any way on this task after submitting.
+</CRITICAL>
+
+</instructions>
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 3]
+role: user
+content:
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `RenameIndex.database_backwards` method in `django/db/migrations/operations/models.py` is currently a no-op when `old_fields` is provided (used for renaming auto-generated indexes from `unique_together`). This prevents the index from being renamed back to its original auto-generated name during a rollback. Consequently, if the migration is re-applied forwards, it fails because the index still carries the "new" name, leading to a "relation already exists" error on databases like PostgreSQL.
+
+2. **Primary Target**: `django/db/migrations/operations/models.py`, specifically the `RenameIndex` class and its `database_backwards` method.
+
+3. **Logic Change**:
+    - Modify `RenameIndex.database_backwards` to handle the `self.old_fields` case.
+    - Instead of returning immediately, it should perform a rename from `self.new_name` back to the auto-generated name.
+    - To find the auto-generated name, it should look at the `to_state` (the state being rolled back to). Since `old_fields` implies the index was originally created via `unique_together` or an unnamed `models.Index`, the `to_state` will contain the model definition with the original configuration.
+    - Use `schema_editor._constraint_names` on the model from `to_state` to discover the expected auto-generated name for those fields.
+    - Call `schema_editor.rename_index` to revert the name.
+
+4. **Implementation Steps**:
+    - Open `django/db/migrations/operations/models.py`.
+    - Locate `RenameIndex.database_backwards` (around line 971).
+    - Replace the `if self.old_fields: return` block with logic that:
+        - Retrieves the model from `to_state`.
+        - Identifies the current index in the database (which has `name=self.new_name`).
+        - Finds the "old" auto-generated name by calling `schema_editor._constraint_names` using the columns corresponding to `self.old_fields` from the `to_state` model.
+        - Constructs a `new_index` object with that discovered auto-generated name.
+        - Executes `schema_editor.rename_index(model, old_index, new_index)`.
+
+5. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Run the existing migration tests to ensure no regressions:
+  `python3 tests/runtests.py migrations.test_operations`
+- Specifically, verify the `RenameIndex` tests (if a specific test file exists for it, otherwise the above covers it):
+  `python3 tests/runtests.py migrations.test_operations --test-labels OperationTests.test_rename_index_unnamed_unique_together` (Note: exact test name may vary, use the module-level run if unsure).
+- Since the issue is reported on PostgreSQL, if a PostgreSQL environment is available, run the tests against it:
+  `python3 tests/runtests.py migrations.test_operations --settings=tests.postgres_tests.settings`
+- Verify that the "Re-apply renaming" scenario described in the task (forward -> backward -> forward) no longer crashes with `django.db.utils.ProgrammingError: relation "..." already exists`.
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 4]
+role: user
+content:
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/migrations/operations/models.py**: Contains the `RenameIndex` class.
+    - `RenameIndex.database_forwards`: Handles renaming an index, including the case where `old_fields` is provided (typically for an unnamed index created via `unique_together`).
+    - `RenameIndex.database_backwards`: Currently contains a no-op check `if self.old_fields: return`, which prevents the index from being renamed back to its original auto-generated name during a migration rollback.
+- **tests/migrations/test_operations.py**: Contains migration operation tests, including those for `RenameIndex`.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The `RenameIndex` operation supports renaming an index by specifying either its `old_name` or the `old_fields` that define it. When `old_fields` is used (often to rename an auto-generated index from a `unique_together` constraint), the `database_backwards` method is explicitly coded as a no-op:
+
+```python
+def database_backwards(self, app_label, schema_editor, from_state, to_state):
+    if self.old_fields:
+        # Backward operation with unnamed index is a no-op.
+        return
+    # ... (logic for old_name case)
+```
+
+This causes the database state to diverge from the migration state during a rollback. If the migration is then re-applied (forward), `database_forwards` fails because it expects to find an index with the auto-generated name (derived from `old_fields`), but the index still carries the `new_name` from the previous failed/rolled-back application.
+
+**Hypothesis**: `database_backwards` must perform a reverse rename even when `old_fields` is used. It needs to:
+1. Identify the current name of the index in the database (which is `self.new_name`).
+2. Determine the "old" auto-generated name it should revert to.
+3. Call `schema_editor.rename_index` to restore the original name.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+- **Reproduction Script**: A script that creates a model with `unique_together`, applies a `RenameIndex` migration with `old_fields`, rolls it back, and then attempts to apply it again.
+- **Existing Tests**:
+  ```bash
+  python3 tests/runtests.py migrations.test_operations
+  ```
+- **Specific Test Case** (if identified):
+  ```bash
+  python3 tests/runtests.py migrations.test_operations.OperationTests.test_rename_index_unnamed_backward
+  ```
+
+# FAILED PATCH ATTEMPTS
+
+*No patch attempts have been recorded yet in this phase.*
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 5]
+role: user
+content:
+=== CURRENT PHASE MESSAGES ===
+These messages contain the transcript of the current phase, including your previous actions, command outputs, and reasoning.
+Use this information to decide whether to continue the phase or switch phases.
+
+STEP 1
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "cat patch.txt"}
+
+STEP 2
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<warning>
+The output of your last command was too long.
+Please try a different command that produces less output.
+If you're looking at a file you can try use head, tail or sed to view a smaller number of lines selectively.
+If you're using grep or find and it produced too much output, you can use a more selective search pattern.
+If you really need to see something from the full command's output, you can redirect output to a file and then search in that file.
+</warning><output_head>
+diff --git a/django/db/migrations/operations/models.py b/django/db/migrations/operations/models.py
+index d17232e4ec..c4c4ddc2f8 100644
+--- a/django/db/migrations/operations/models.py
++++ b/django/db/migrations/operations/models.py
+@@ -5,770 +5,7 @@ from django.db.migrations.utils import field_references, resolve_relation
+ from django.db.models.options import normalize_together
+ from django.utils.functional import cached_property
+ 
+-from .fields import AddField, AlterField, FieldOperation, RemoveField, RenameField
+-
+-
+-def _check_for_duplicates(arg_name, objs):
+-    used_vals = set()
+-    for val in objs:
+-        if val in used_vals:
+-            raise ValueError(
+-                "Found duplicate value %s in CreateModel %s argument." % (val, arg_name)
+-            )
+-        used_vals.add(val)
+-
+-
+-class ModelOperation(Operation):
+-    def __init__(self, name):
+-        self.name = name
+-
+-    @cached_property
+-    def name_lower(self):
+-        return self.name.lower()
+-
+-    def references_model(self, name, app_label):
+-        return name.lower() == self.name_lower
+-
+-    def reduce(self, operation, app_label):
+-        return super().reduce(operation, app_label) or self.can_reduce_through(
+-            operation, app_label
+-        )
+-
+-    def can_reduce_through(self, operation, app_label):
+-        return not operation.references_model(self.name, app_label)
+-
+-
+-class CreateModel(ModelOperation):
+-    """Create a model's table."""
+-
+-    serialization_expand_args = ["fields", "options", "managers"]
+-
+-    def __init__(self, name, fields, options=None, bases=None, managers=None):
+-        self.fields = fields
+-        self.options = options or {}
+-        self.bases = bases or (models.Model,)
+-        self.managers = managers or []
+-        super().__init__(name)
+-        # Sanity-check that there are no duplicated field names, bases, or
+-        # manager names
+-        _check_for_duplicates("fields", (name for name, _ in self.fields))
+-        _check_for_duplicates(
+-            "bases",
+-            (
+-                base._meta.label_lower
+-                if hasattr(base, "_meta")
+-                else base.lower()
+-                if isinstance(base, str)
+-                else base
+-                for base in self.bases
+-            ),
+-        )
+-        _check_for_duplicates("managers", (name for name, _ in self.managers))
+-
+-    def deconstruct(self):
+-        kwargs = {
+-            "name": self.name,
+-            "fields": self.fields,
+-        }
+-        if self.options:
+-            kwargs["options"] = self.options
+-        if self.bases and self.bases != (models.Model,):
+-            kwargs["bases"] = self.bases
+-        if self.managers and self.managers != [("objects", models.Manager())]:
+-            kwargs["managers"] = self.managers
+-        return (self.__class__.__qualname__, [], kwargs)
+-
+-    def state_forwards(self, app_label, state):
+-        state.add_model(
+-            ModelState(
+-                app_label,
+-                self.name,
+-                list(self.fields),
+-                dict(self.options),
+-                tuple(self.bases),
+-                list(self.managers),
+-            )
+-        )
+-
+-    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+-        model = to_state.apps.get_model(app_label, self.name)
+-        if self.allow_migrate_model(schema_editor.connection.alias, model):
+-            schema_editor.create_model(model)
+-
+-    def database_backwards(self, app_label, schema_editor, from_state, to_state):
+-        model = from_state.apps.get_model(app_label, self.name)
+-        if self.allow_migrate_model(schema_editor.connection.alias, model):
+-            schema_editor.delete_model(model)
+-
+-    def describe(self):
+-        return "Create %smodel %s" % (
+-            "proxy " if self.options.get("proxy", False) else "",
+-            self.name,
+-        )
+-
+-    @property
+-    def migration_name_fragment(self):
+-        return self.name_lower
+-
+-    def references_model(self, name, app_label):
+-        name_lower = name.lower()
+-        if name_lower == self.name_lower:
+-            return True
+-
+-        # Check we didn't inherit from the model
+-        reference_model_tuple = (app_label, name_lower)
+-        for base in self.bases:
+-            if (
+-                base is not models.Model
+-                and isinstance(base, (models.base.ModelBase, str))
+-                and resolve_relation(base, app_label) == reference_model_tuple
+-            ):
+-                return True
+-
+-        # Check we have no FKs/M2Ms with it
+-        for _name, field in self.fields:
+-            if field_references(
+-                (app_label, self.name_lower), field, reference_model_tuple
+-            ):
+-                return True
+-        return False
+-
+-    def reduce(self, operation, app_label):
+-        if (
+-            isinstance(operation, DeleteModel)
+-            and self.name_lower == operation.name_lower
+-            and 
+</output_head>
+<elided_chars>
+27811 characters elided
+</elided_chars>
+<output_tail>
+ameIndex(IndexOperation):
+ 
+     def database_backwards(self, app_label, schema_editor, from_state, to_state):
+         if self.old_fields:
+-            # Backward operation with unnamed index is a no-op.
++            # Backward operation with unnamed index is a rename back to the old
++            # auto-generated name.
++            model = to_state.apps.get_model(app_label, self.model_name)
++            if not self.allow_migrate_model(schema_editor.connection.alias, model):
++                return
++
++            columns = [
++                model._meta.get_field(field).column for field in self.old_fields
++            ]
++            matching_index_name = schema_editor._constraint_names(
++                model, column_names=columns, index=True
++            )
++            if len(matching_index_name) != 1:
++                raise ValueError(
++                    "Found wrong number (%s) of indexes for %s(%s)."
++                    % (
++                        len(matching_index_name),
++                        model._meta.db_table,
++                        ", ".join(columns),
++                    )
++                )
++            new_index = models.Index(
++                fields=self.old_fields,
++                name=matching_index_name[0],
++            )
++            old_index = models.Index(
++                fields=self.old_fields,
++                name=self.new_name,
++            )
++            schema_editor.rename_index(model, old_index, new_index)
+             return
+ 
+         self.new_name_lower, self.old_name_lower = (
+@@ -984,42 +222,37 @@ class RenameIndex(IndexOperation):
+         )
+         self.new_name, self.old_name = self.old_name, self.new_name
+ 
+-    def describe(self):
++    def deconstruct(self):
++        kwargs = {
++            "model_name": self.model_name,
++            "new_name": self.new_name,
++        }
+         if self.old_name:
+-            return (
+-                f"Rename index {self.old_name} on {self.model_name} to {self.new_name}"
+-            )
++            kwargs["old_name"] = self.old_name
++        if self.old_fields:
++            kwargs["old_fields"] = self.old_fields
+         return (
+-            f"Rename unnamed index for {self.old_fields} on {self.model_name} to "
+-            f"{self.new_name}"
++            self.__class__.__name__,
++            [],
++            kwargs,
+         )
+ 
+-    @property
+-    def migration_name_fragment(self):
++    def describe(self):
+         if self.old_name:
+-            return "rename_%s_%s" % (self.old_name_lower, self.new_name_lower)
+-        return "rename_%s_%s_%s" % (
+-            self.model_name_lower,
+-            "_".join(self.old_fields),
+-            self.new_name_lower,
++            return "Rename index %s on %s to %s" % (
++                self.old_name,
++                self.model_name,
++                self.new_name,
++            )
++        return "Rename index on %s(%s) to %s" % (
++            self.model_name,
++            ", ".join(self.old_fields),
++            self.new_name,
+         )
+ 
+-    def reduce(self, operation, app_label):
+-        if (
+-            isinstance(operation, RenameIndex)
+-            and self.model_name_lower == operation.model_name_lower
+-            and operation.old_name
+-            and self.new_name_lower == operation.old_name_lower
+-        ):
+-            return [
+-                RenameIndex(
+-                    self.model_name,
+-                    new_name=operation.new_name,
+-                    old_name=self.old_name,
+-                    old_fields=self.old_fields,
+-                )
+-            ]
+-        return super().reduce(operation, app_label)
++    @property
++    def migration_name_fragment(self):
++        return "rename_%s_%s" % (self.new_name_lower, self.model_name_lower)
+ 
+ 
+ class AddConstraint(IndexOperation):
+@@ -1038,7 +271,7 @@ class AddConstraint(IndexOperation):
+             schema_editor.add_constraint(model, self.constraint)
+ 
+     def database_backwards(self, app_label, schema_editor, from_state, to_state):
+-        model = to_state.apps.get_model(app_label, self.model_name)
++        model = from_state.apps.get_model(app_label, self.model_name)
+         if self.allow_migrate_model(schema_editor.connection.alias, model):
+             schema_editor.remove_constraint(model, self.constraint)
+ 
+@@ -1060,7 +293,10 @@ class AddConstraint(IndexOperation):
+ 
+     @property
+     def migration_name_fragment(self):
+-        return "%s_%s" % (self.model_name_lower, self.constraint.name.lower())
++        return "add_constraint_%s_%s" % (
++            self.model_name_lower,
++            self.constraint.name.lower(),
++        )
+ 
+ 
+ class RemoveConstraint(IndexOperation):
+@@ -1102,4 +338,7 @@ class RemoveConstraint(IndexOperation):
+ 
+     @property
+     def migration_name_fragment(self):
+-        return "remove_%s_%s" % (self.model_name_lower, self.name.lower())
++        return "remove_constraint_%s_%s" % (
++            self.model_name_lower,
++            self.name.lower(),
++        )
+
+</output_tail>
+
+STEP 3
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "python3 tests/runtests.py migrations.test_operations"}
+
+STEP 4
+TOOL RESULT:
+return_code: 1
+output:
+<returncode>1</returncode>
+<output>
+Traceback (most recent call last):
+  File "/testbed/tests/runtests.py", line 18, in <module>
+    import django
+ModuleNotFoundError: No module named 'django'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/testbed/tests/runtests.py", line 20, in <module>
+    raise RuntimeError(
+RuntimeError: Django module not found, reference tests/README.rst for instructions.
+</output>
+
+--------------------------------------------------------------------------------
+
+
+================================================================================
+MODEL RESPONSE
+================================================================================
+
+{'content': None,
+ 'extra': {'actions': [{'command': 'export PYTHONPATH=$PYTHONPATH:/testbed && '
+                                   'python3 tests/runtests.py '
+                                   'migrations.test_operations',
+                        'tool': 'bash',
+                        'tool_call_id': 'call_d0c2872df6b043a9aa4c269c3ca7__thought__CiEBjz1rX8z1VtniwyPFppqqIGyfoYsN378a6o+GA4m1pt8='}],
+           'cost': 0.003756,
+           'phase': 'validation',
+           'response': {'choices': [{'finish_reason': 'tool_calls',
+                                     'index': 0,
+                                     'message': {'content': None,
+                                                 'function_call': None,
+                                                 'images': [],
+                                                 'provider_specific_fields': {'thought_signatures': ['CiEBjz1rX8z1VtniwyPFppqqIGyfoYsN378a6o+GA4m1pt8=']},
+                                                 'role': 'assistant',
+                                                 'thinking_blocks': [],
+                                                 'tool_calls': [{'function': {'arguments': '{"command": '
+                                                                                           '"export '
+                                                                                           'PYTHONPATH=$PYTHONPATH:/testbed '
+                                                                                           '&& '
+                                                                                           'python3 '
+                                                                                           'tests/runtests.py '
+                                                                                           'migrations.test_operations"}',
+                                                                              'name': 'bash'},
+                                                                 'id': 'call_d0c2872df6b043a9aa4c269c3ca7__thought__CiEBjz1rX8z1VtniwyPFppqqIGyfoYsN378a6o+GA4m1pt8=',
+                                                                 'index': 0,
+                                                                 'provider_specific_fields': {'thought_signature': 'CiEBjz1rX8z1VtniwyPFppqqIGyfoYsN378a6o+GA4m1pt8='},
+                                                                 'type': 'function'}]}}],
+                        'created': 1773211076,
+                        'id': 'xA2xaaTvEN-jq8YP7emy-AE',
+                        'model': 'gemini-3-flash-preview',
+                        'object': 'chat.completion',
+                        'system_fingerprint': None,
+                        'usage': {'cache_read_input_tokens': None,
+                                  'completion_tokens': 28,
+                                  'completion_tokens_details': {'text_tokens': 28},
+                                  'prompt_tokens': 7344,
+                                  'prompt_tokens_details': {'audio_tokens': None,
+                                                            'cached_tokens': None,
+                                                            'image_tokens': None,
+                                                            'text_tokens': 7344},
+                                  'total_tokens': 7372},
+                        'vertex_ai_citation_metadata': [],
+                        'vertex_ai_grounding_metadata': [],
+                        'vertex_ai_safety_results': [],
+                        'vertex_ai_url_context_metadata': []},
+           'step_index': 16,
+           'timestamp': 1773211077.6711218},
+ 'function_call': None,
+ 'images': [],
+ 'provider_specific_fields': {'thought_signatures': ['CiEBjz1rX8z1VtniwyPFppqqIGyfoYsN378a6o+GA4m1pt8=']},
+ 'role': 'assistant',
+ 'thinking_blocks': [],
+ 'tool_calls': [{'function': {'arguments': '{"command": "export '
+                                           'PYTHONPATH=$PYTHONPATH:/testbed && '
+                                           'python3 tests/runtests.py '
+                                           'migrations.test_operations"}',
+                              'name': 'bash'},
+                 'id': 'call_d0c2872df6b043a9aa4c269c3ca7__thought__CiEBjz1rX8z1VtniwyPFppqqIGyfoYsN378a6o+GA4m1pt8=',
+                 'index': 0,
+                 'provider_specific_fields': {'thought_signature': 'CiEBjz1rX8z1VtniwyPFppqqIGyfoYsN378a6o+GA4m1pt8='},
+                 'type': 'function'}]}

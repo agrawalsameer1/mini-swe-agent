@@ -1,0 +1,42 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/migrations/operations/models.py**: Contains the `RenameIndex` class. The `database_backwards` method (lines 1011-1045) is the primary target for the fix. It currently lacks the logic to revert an unnamed index (defined by `old_fields`) back to its auto-generated name.
+- **tests/migrations/test_operations.py**: Contains `test_rename_index_unnamed_index` (around line 2980). This test currently asserts `self.assertNumQueries(0)` during the backward migration, which is the behavior that needs to change.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The `RenameIndex` operation fails during rollback when `old_fields` is used because `database_backwards` is currently a no-op for unnamed indexes.
+
+1.  **Forward Migration**: `RenameIndex(..., old_fields=('col',), new_name='new_idx')` successfully renames the auto-generated index (e.g., `app_model_col_abc_idx`) to `new_idx`.
+2.  **Backward Migration (Rollback)**: The current implementation of `database_backwards` does not perform any database action when `old_fields` is provided. Consequently, the index remains named `new_idx` in the database.
+3.  **Re-applying Forward**: When attempting to re-apply the migration, `database_forwards` searches for the original auto-generated name (using `schema_editor._constraint_names`). Since the index was never renamed back during rollback, it is still named `new_idx`, and the lookup fails or finds the wrong state, leading to a migration failure.
+
+**Working Hypothesis**:
+The `database_backwards` method must be updated to:
+- Use `schema_editor._constraint_names` to find the auto-generated name that the index *should* have (based on the `to_state`).
+- Explicitly call `schema_editor.rename_index` to move the index from `self.new_name` back to that discovered auto-generated name.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+- **Install dependencies**:
+  ```bash
+  pip install sqlparse
+  ```
+- **Run reproduction test**:
+  ```bash
+  python3 tests/runtests.py migrations.test_operations.OperationTests.test_rename_index_unnamed_index
+  ```
+- **Run all migration tests**:
+  ```bash
+  python3 tests/runtests.py migrations.test_operations
+  ```
+
+# FAILED PATCH ATTEMPTS
+
+- **Attempt 1**: File truncation of `django/db/migrations/operations/models.py` due to incorrect `sed` or write usage.
+- **Attempt 2**: Logic was incorrectly added to `CreateModel` instead of `RenameIndex`, causing `AttributeError`.
+- **Attempt 3**: A combined patch modified both `CreateModel` and `RenameIndex`. While the logic in `RenameIndex` was moving in the right direction, the test `test_rename_index_unnamed_index` failed because it explicitly expects 0 queries during rollback.
+- **Lesson Learned**: The fix requires a two-part change: implementing the logic in `RenameIndex.database_backwards` AND updating the test case in `tests/migrations/test_operations.py` to remove the `assertNumQueries(0)` expectation, as a functional rollback will necessarily perform a `RENAME INDEX` query.

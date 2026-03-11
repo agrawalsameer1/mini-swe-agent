@@ -1,0 +1,44 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- `astropy/io/ascii/rst.py`: Contains the `RST` class which is missing `header_rows` in its `__init__` method and has a `write` method that assumes a fixed index for the table border line.
+- `astropy/io/ascii/fixedwidth.py`: The parent class `FixedWidth` is defined here. It correctly handles `header_rows` in its `__init__`.
+- `astropy/io/ascii/core.py`: Contains the `_get_writer` function which instantiates the writer class with `**kwargs`, leading to the `TypeError`.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Argument Mismatch**: The `RST` class explicitly defines `__init__(self)` without accepting `**kwargs` or specific arguments like `header_rows`. When `astropy.io.ascii.write(table, format='rst', header_rows=[...])` is called, the machinery attempts to pass `header_rows` to the `RST` constructor, causing a `TypeError`.
+- **Hardcoded Border Index**: The `RST.write` method currently uses `lines[1]` as the border line to wrap the table:
+  ```python
+  def write(self, lines):
+      lines = super().write(lines)
+      lines = [lines[1]] + lines + [lines[1]]
+      return lines
+  ```
+  When `header_rows` is provided (e.g., including 'unit'), the number of header lines increases, and the separator line (usually `==== ====`) is no longer at index 1. This will result in incorrect table formatting even if the `TypeError` is fixed.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+The following script reproduces the `TypeError`. Note: In the current environment, `astropy` may fail to import due to missing compiled extensions (`_compiler`).
+
+```python
+from astropy.table import QTable
+import astropy.units as u
+import sys
+
+try:
+    tbl = QTable({'wave': [350, 950]*u.nm, 'response': [0.7, 1.2]*u.count})
+    # This works (default)
+    tbl.write(sys.stdout, format="ascii.rst")
+    # This fails with TypeError
+    tbl.write(sys.stdout, format="ascii.rst", header_rows=["name", "unit"])
+except Exception as e:
+    print(f"Caught exception: {type(e).__name__}: {e}")
+```
+
+# FAILED PATCH ATTEMPTS
+
+- **Environment Issues**: Attempted to run `pip install -e .` and `python setup.py build_ext --inplace` to enable imports, but encountered timeouts and NumPy 2.0 C-API compatibility errors in the `astropy.convolution` extension.
+- **Mitigation**: Future phases should focus on patching `astropy/io/ascii/rst.py` directly based on code analysis, as the logic error is evident from the source. To run tests, one might need to mock `astropy.utils._compiler` or use an environment with pre-built extensions.

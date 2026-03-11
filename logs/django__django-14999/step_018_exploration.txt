@@ -1,0 +1,1370 @@
+STEP: 18
+PHASE: exploration
+FINAL PROMPT TOKENS: 11234
+================================================================================
+FINAL BUILT PROMPT
+================================================================================
+
+[MESSAGE 1]
+role: system
+content:
+You are a helpful assistant that can interact with a computer shell to solve programming tasks.
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 2]
+role: user
+content:
+<pr_description>
+Consider the following PR description:
+RenameModel with db_table should be a noop.
+Description
+	
+A RenameModel operation that already has db_table defined must be a noop.
+In Postgres, it drops and recreates foreign key constraints. In sqlite it recreates the table (as expected for a table renaming).
+
+</pr_description>
+
+<instructions>
+# EXPLORATION PHASE
+
+You are currently in the **EXPLORATION phase**.
+
+Your goal for the current phase is to understand the bug and gather enough information to
+produce a **single concrete patch attempt**.
+
+Exploration will produce a handoff that contains:
+
+- an **EXECUTION PLAN** describing exactly how to implement the patch
+- a **VALIDATION PLAN** containing commands to verify the patch
+
+Exploration should focus on:
+
+- reading relevant code
+- locating the bug mechanism
+- identifying target files and functions
+- forming a plausible patch hypothesis
+- determining how the patch should be validated
+
+You must **NOT modify source files during exploration**.
+
+Once enough information exists to propose a reasonable patch attempt and
+define validation commands, you must switch phases.
+
+If you have enough information, you must switch to
+**EXECUTION phase** using the `switch_phase` tool.
+
+Exploration should be **short and decisive**.
+Do not attempt to achieve perfect certainty before switching phases.
+
+The goal is to enable a **reasonable first patch attempt**, not a perfect solution.
+
+CRITICAL:
+Every response in this phase MUST include at least one tool call.
+Valid tool calls are ONLY:
+- `bash`
+- `switch_phase`
+
+A response with no tool call is invalid and will fail.
+You must never output a text-only response.
+</instructions>
+
+<memory_system>
+# Memory System
+
+The agent maintains two forms of memory.
+
+## Distilled Memory (long-term)
+
+This contains durable knowledge discovered during previous phases, such as:
+
+- confirmed relevant files
+- invalidated hypotheses
+- previous patch attempts
+- reproduction commands
+- important code locations
+
+Treat distilled memory as reliable prior knowledge.
+
+## Execution Report (handoff from execution/validation)
+
+If present, the execution report summarizes:
+
+- the patch that was attempted
+- edits made
+- validation results
+- why the attempt failed
+- what exploration should investigate next
+
+If an execution report is present, **treat it as high-priority information**.
+The next exploration phase should focus on resolving the uncertainty described there.
+
+</memory_system>
+
+<current_phase_messages>
+# CURRENT PHASE MESSAGES
+
+Your prompt will include a section called **CURRENT PHASE MESSAGES**.
+
+This section contains the transcript of the current phase, including:
+
+- your previous THOUGHT messages
+- commands you executed
+- outputs returned by those commands
+
+Use this section to remember what actions have already been performed during
+the current phase.
+
+Before running a command, check whether it has already been executed and
+whether its output is already available.
+
+You should **NOT repeat commands that have already been run** unless there is
+a clear reason to do so.
+
+Instead, use the information in CURRENT PHASE MESSAGES to decide the next
+action based on the results you have already observed.
+
+The CURRENT PHASE MESSAGES section represents the working history for the
+current phase.
+
+Even if you decide no more exploration is needed, you must still emit a tool call:
+in that case, call `switch_phase`.
+</current_phase_messages>
+
+<recommended_workflow>
+# Recommended Exploration Workflow
+
+Typical exploration steps include:
+
+1. Identify likely relevant files
+2. Read the implementation and related functions
+3. Understand how the failing behavior occurs
+4. Form a concrete hypothesis for the bug
+5. Identify the file(s) and code region(s) that should be modified
+6. Identify commands that will validate the patch
+
+Exploration should gather enough information to later generate:
+
+- a clear **bug hypothesis**
+- specific **target files and code regions**
+- a **concrete patch idea**
+- a **set of validation commands**
+
+Validation commands should ideally include:
+
+- the reproduction command for the bug
+- relevant existing tests
+- at least one broader regression-oriented check if possible
+
+Exploration is complete if you can clearly identify:
+
+- TARGET FILES to edit
+- A PLAUSIBLE BUG HYPOTHESIS
+- A CONCRETE PATCH IDEA
+- A SET OF VALIDATION COMMANDS
+
+At that point, **switch to EXECUTION immediately** using the `switch_phase` tool.
+Do not write a summary without a tool call.
+</recommended_workflow>
+
+<phase_switching>
+# Phase Switching (CRITICAL)
+
+If the CURRENT PHASE MESSAGES, Distilled Memory, and Execution Report contain enough information to generate
+a concrete patch attempt **and validation commands**, you MUST call the `switch_phase` tool.
+
+Do NOT continue exploring indefinitely.
+
+You should switch phases if you can answer these questions:
+
+- Which file(s) should be modified?
+- What change should be made?
+- Why should that change fix the bug?
+- How will the patch be validated?
+
+You do NOT need perfect certainty.
+
+A **reasonable first patch attempt is sufficient**.
+
+The EXECUTION and VALIDATION phases will carry out the patch and testing.
+
+Continuing exploration when a viable patch plan exists is incorrect behavior.
+
+If exploration is complete, the correct response is a `switch_phase` tool call.
+A plain explanation without `switch_phase` is invalid.
+</phase_switching>
+
+<command_rules>
+# Command Execution Rules
+
+You are operating in an environment where:
+
+1. You issue commands
+2. The system executes them in a subshell
+3. You see the results
+4. You issue the next command(s)
+
+Each response must include:
+
+1. A **THOUGHT** section explaining your reasoning
+2. At least one **tool call**
+
+Tool calls may be:
+
+- bash commands (for exploration)
+- switch_phase (if exploration is complete)
+
+CRITICAL:
+Every response must contain a tool call.
+The response is invalid if the tool call is omitted, implied, deferred, or replaced by plain text.
+</command_rules>
+
+<allowed_actions>
+# Allowed Exploration Actions
+
+During exploration you may:
+
+- list files
+- search the codebase
+- read source files
+- inspect functions and modules
+- run diagnostic commands
+- examine tests or reproduction scripts
+
+Useful commands include:
+
+- `ls`
+- `grep`
+- `rg`
+- `find`
+- `cat`
+- `sed`
+- `head`
+- `tail`
+
+</allowed_actions>
+
+<forbidden_actions>
+# Forbidden Actions in Exploration
+
+During exploration you MUST NOT:
+
+- modify source files
+- create patches
+- run large refactors
+- attempt to implement the fix
+
+Code edits belong in **EXECUTION phase**.
+
+</forbidden_actions>
+
+<environment>
+# Environment Details
+
+- You have a full Linux shell environment
+- Use non-interactive flags (-y, -f) when applicable
+- Avoid interactive tools like `vim` or `nano`
+- Directory changes are not persistent between commands
+- Prefix commands with `cd` if necessary
+
+</environment>
+
+<response_format>
+# Response Format
+
+Each response must follow this format:
+
+THOUGHT:
+Explain your reasoning and what you are trying to learn.
+
+Then include **one or more tool calls**.
+
+REQUIRED:
+- The response must include a real tool call on every step.
+- The final part of the response must be a tool call.
+- Never end with analysis-only text.
+
+Example of switching phases if exploration is complete:
+<example_response>
+I have identified the likely bug location and understand how it should be fixed.
+I also know which commands should be used to validate the fix.
+
+Since I now have a bug hypothesis, target file, patch idea, and validation commands,
+exploration is complete and I should switch to execution.
+
+[Calls switch_phase tool: {"phase": "execution", "reason": "Identified target file, bug hypothesis, patch idea, and validation commands."}]
+</example_response>
+
+Example of continuing exploration:
+<example_response>
+I need to understand how the rule is implemented before forming a patch hypothesis.
+I will inspect the relevant files.
+
+[Makes multiple bash tool calls: {"command": "ls -la"}, {"command": "rg L031"}, {"command": "sed -n '1,200p' src/rules/L031.py"}]
+</example_response>
+
+</response_format>
+
+<tool_requirement>
+# REQUIRED ACTION (CRITICAL)
+
+Every response MUST end with a tool call.
+
+You have exactly TWO possible actions:
+
+1. Call the `bash` tool
+2. Call the `switch_phase` tool
+
+You MUST choose one of these actions on EVERY step.
+
+A response without a tool call is INVALID.
+
+Text-only responses are INVALID.
+
+Never finish a response without a tool call.
+
+NON-NEGOTIABLE:
+- If you want to keep exploring, call `bash`.
+- If exploration is complete, call `switch_phase`.
+- There is no third option.
+</tool_requirement>
+
+</instructions>
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 3]
+role: user
+content:
+=== CURRENT OBJECTIVE ===
+Initial exploration of the issue. Identify the relevant code implementing the behavior described in the task and prepare a patch plan.
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 4]
+role: user
+content:
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+--------------------------------------------------------------------------------
+
+[MESSAGE 5]
+role: user
+content:
+=== CURRENT PHASE MESSAGES ===
+These messages contain the transcript of the current phase, including your previous actions, command outputs, and reasoning.
+Use this information to decide whether to continue the phase or switch phases.
+
+STEP 1
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "find . -maxdepth 3 -name \"*migrations*\""}
+
+STEP 2
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+./tests/auth_tests/test_migrations.py
+./tests/gis_tests/gis_migrations
+./tests/migration_test_data_persistence/migrations
+./tests/db_functions/migrations
+./tests/sites_framework/migrations
+./tests/contenttypes_tests/operations_migrations
+./tests/postgres_tests/array_default_migrations
+./tests/postgres_tests/migrations
+./tests/postgres_tests/array_index_migrations
+./tests/migrate_signals/custom_migrations
+./tests/migrations
+./tests/migrations/test_migrations_squashed_complex
+./tests/migrations/test_migrations_conflict
+./tests/migrations/faulty_migrations
+./tests/migrations/test_migrations_custom_user
+./tests/migrations/test_migrations_backwards_deps_1
+./tests/migrations/deprecated_field_migrations
+./tests/migrations/test_migrations_fake_split_initial
+./tests/migrations/test_migrations_no_operations
+./tests/migrations/test_migrations
+./tests/migrations/test_migrations_squashed_ref_squashed
+./tests/migrations/test_migrations_bad_pyc
+./tests/migrations/test_migrations_squashed_extra
+./tests/migrations/test_migrations_run_before
+./tests/migrations/test_migrations_initial_false
+./tests/migrations/test_migrations_no_default
+./tests/migrations/migrations_test_apps
+./tests/migrations/test_migrations_plan
+./tests/migrations/test_migrations_order
+./tests/migrations/test_migrations_private
+./tests/migrations/test_migrations_atomic_operation
+./tests/migrations/test_migrations_no_ancestor
+./tests/migrations/test_migrations_conflict_long_name
+./tests/migrations/test_migrations_squashed_erroneous
+./tests/migrations/test_migrations_namespace_package
+./tests/migrations/test_migrations_squashed
+./tests/migrations/test_migrations_unmigdep
+./tests/migrations/test_migrations_squashed_complex_multi_apps
+./tests/migrations/test_migrations_no_init
+./tests/migrations/test_migrations_non_atomic
+./tests/migrations/test_migrations_empty
+./tests/migrations/test_migrations_clashing_prefix
+./tests/migrations/test_migrations_first
+./tests/migrations/test_migrations_no_changes
+./tests/migrations2
+./tests/migrations2/test_migrations_2_no_deps
+./tests/migrations2/test_migrations_2
+./tests/migrations2/test_migrations_2_first
+./docs/topics/migrations.txt
+./docs/howto/writing-migrations.txt
+./django/db/migrations
+</output>
+
+STEP 3
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "find django/db/migrations -name \"*.py\""}
+
+STEP 4
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+django/db/migrations/serializer.py
+django/db/migrations/graph.py
+django/db/migrations/loader.py
+django/db/migrations/state.py
+django/db/migrations/exceptions.py
+django/db/migrations/__init__.py
+django/db/migrations/operations/base.py
+django/db/migrations/operations/models.py
+django/db/migrations/operations/special.py
+django/db/migrations/operations/__init__.py
+django/db/migrations/operations/fields.py
+django/db/migrations/writer.py
+django/db/migrations/questioner.py
+django/db/migrations/autodetector.py
+django/db/migrations/executor.py
+django/db/migrations/optimizer.py
+django/db/migrations/utils.py
+django/db/migrations/recorder.py
+django/db/migrations/migration.py
+</output>
+
+STEP 5
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "grep -n \"class RenameModel\" django/db/migrations/operations/models.py"}
+
+STEP 6
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+289:class RenameModel(ModelOperation):
+</output>
+
+STEP 7
+USER MESSAGE:
+Tool call error:
+
+<error>
+No tool calls found in the response. Every response MUST include at least one tool call.
+</error>
+
+Here is general guidance on how to submit correct toolcalls:
+
+Every response needs to use the 'bash' tool at least once to execute commands.
+
+Call the bash tool with your command as the argument:
+- Tool: bash
+- Arguments: {"command": "your_command_here"}
+
+If you have completed your assignment, please consult the first message about how to
+submit your solution (you will not be able to continue working on this task after that).
+
+STEP 8
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "sed -n '289,380p' django/db/migrations/operations/models.py"}
+
+STEP 9
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+class RenameModel(ModelOperation):
+    """Rename a model."""
+
+    def __init__(self, old_name, new_name):
+        self.old_name = old_name
+        self.new_name = new_name
+        super().__init__(old_name)
+
+    @cached_property
+    def old_name_lower(self):
+        return self.old_name.lower()
+
+    @cached_property
+    def new_name_lower(self):
+        return self.new_name.lower()
+
+    def deconstruct(self):
+        kwargs = {
+            'old_name': self.old_name,
+            'new_name': self.new_name,
+        }
+        return (
+            self.__class__.__qualname__,
+            [],
+            kwargs
+        )
+
+    def state_forwards(self, app_label, state):
+        state.rename_model(app_label, self.old_name, self.new_name)
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        new_model = to_state.apps.get_model(app_label, self.new_name)
+        if self.allow_migrate_model(schema_editor.connection.alias, new_model):
+            old_model = from_state.apps.get_model(app_label, self.old_name)
+            # Move the main table
+            schema_editor.alter_db_table(
+                new_model,
+                old_model._meta.db_table,
+                new_model._meta.db_table,
+            )
+            # Alter the fields pointing to us
+            for related_object in old_model._meta.related_objects:
+                if related_object.related_model == old_model:
+                    model = new_model
+                    related_key = (app_label, self.new_name_lower)
+                else:
+                    model = related_object.related_model
+                    related_key = (
+                        related_object.related_model._meta.app_label,
+                        related_object.related_model._meta.model_name,
+                    )
+                to_field = to_state.apps.get_model(
+                    *related_key
+                )._meta.get_field(related_object.field.name)
+                schema_editor.alter_field(
+                    model,
+                    related_object.field,
+                    to_field,
+                )
+            # Rename M2M fields whose name is based on this model's name.
+            fields = zip(old_model._meta.local_many_to_many, new_model._meta.local_many_to_many)
+            for (old_field, new_field) in fields:
+                # Skip self-referential fields as these are renamed above.
+                if new_field.model == new_field.related_model or not new_field.remote_field.through._meta.auto_created:
+                    continue
+                # Rename the M2M table that's based on this model's name.
+                old_m2m_model = old_field.remote_field.through
+                new_m2m_model = new_field.remote_field.through
+                schema_editor.alter_db_table(
+                    new_m2m_model,
+                    old_m2m_model._meta.db_table,
+                    new_m2m_model._meta.db_table,
+                )
+                # Rename the column in the M2M table that's based on this
+                # model's name.
+                schema_editor.alter_field(
+                    new_m2m_model,
+                    old_m2m_model._meta.get_field(old_model._meta.model_name),
+                    new_m2m_model._meta.get_field(new_model._meta.model_name),
+                )
+
+    def database_backwards(self, app_label, schema_editor, from_state, to_state):
+        self.new_name_lower, self.old_name_lower = self.old_name_lower, self.new_name_lower
+        self.new_name, self.old_name = self.old_name, self.new_name
+
+        self.database_forwards(app_label, schema_editor, from_state, to_state)
+
+        self.new_name_lower, self.old_name_lower = self.old_name_lower, self.new_name_lower
+        self.new_name, self.old_name = self.old_name, self.new_name
+
+    def references_model(self, name, app_label):
+        return (
+</output>
+
+STEP 10
+ASSISTANT THOUGHT:
+THOUGHT:
+The `RenameModel.database_forwards` method currently calls `schema_editor.alter_db_table` and `schema_editor.alter_field` regardless of whether the `db_table` has changed. If `db_table` is explicitly set and remains the same after the rename, these operations should ideally be skipped to avoid unnecessary database actions like dropping and recreating foreign keys (Postgres) or recreating the table (SQLite).
+
+I need to verify if `old_model._meta.db_table` and `new_model._meta.db_table` are equal when a `db_table` is specified.
+
+I will create a reproduction script to confirm this behavior. I'll set up a Django environment, define a model with a `db_table`, and then run a `RenameModel` operation on it, observing the SQL generated.
+
+First, I'll look at how tests are structured in this repo to make sure I can run a reproduction script.
+
+STEP 11
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "ls tests/migrations/test_operations.py"}
+
+STEP 12
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+tests/migrations/test_operations.py
+</output>
+
+STEP 13
+ASSISTANT THOUGHT:
+THOUGHT:
+I will examine `tests/migrations/test_operations.py` to see how `RenameModel` is tested and how I can write a reproduction script.
+
+tool: bash
+arguments: {"command": "grep -n \"RenameModel\" tests/migrations/test_operations.py | head -n 20"}
+
+STEP 14
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "grep -n \"RenameModel\" tests/migrations/test_operations.py | head -n 20"}
+
+STEP 15
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+602:        Tests the RenameModel operation.
+606:        operation = migrations.RenameModel("Pony", "Horse")
+624:        # RenameModel also repoints all incoming FKs and M2Ms
+650:        self.assertEqual(definition[0], "RenameModel")
+656:        RenameModel operations shouldn't trigger the caching of rendered apps
+661:        operation = migrations.RenameModel('Foo', 'Bar')
+668:        operation = migrations.RenameModel('Bar', 'Foo')
+676:        Tests the RenameModel operation on model with self referential FK.
+680:        operation = migrations.RenameModel("Rider", "HorseRider")
+686:        # Remember, RenameModel also repoints all incoming FKs and M2Ms
+718:        Tests the RenameModel operation on a model which has a superclass that
+723:        operation = migrations.RenameModel("ShetlandPony", "LittleHorse")
+729:        # RenameModel shouldn't repoint the superclass's relations, only local ones
+761:            migrations.RenameModel("ReflexivePony", "ReflexivePony2"),
+785:            migrations.RenameModel("Pony", "Pony2"),
+814:            migrations.RenameModel("Rider", "Rider2"),
+853:            migrations.RenameModel("PonyRider", "PonyRider2"),
+867:        """RenameModel renames a many-to-many column after a RenameField."""
+883:            migrations.RenameModel(old_name='Rider', new_name='Jockey'),
+</output>
+
+STEP 16
+ASSISTANT THOUGHT:
+THOUGHT:
+I will examine the `RenameModel` tests in `tests/migrations/test_operations.py` to understand how to construct a reproduction case where `db_table` is explicitly set.
+
+STEP 17
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "sed -n '602,650p' tests/migrations/test_operations.py"}
+
+STEP 18
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+        Tests the RenameModel operation.
+        """
+        project_state = self.set_up_test_model("test_rnmo", related_model=True)
+        # Test the state alteration
+        operation = migrations.RenameModel("Pony", "Horse")
+        self.assertEqual(operation.describe(), "Rename model Pony to Horse")
+        self.assertEqual(operation.migration_name_fragment, 'rename_pony_horse')
+        # Test initial state and database
+        self.assertIn(("test_rnmo", "pony"), project_state.models)
+        self.assertNotIn(("test_rnmo", "horse"), project_state.models)
+        self.assertTableExists("test_rnmo_pony")
+        self.assertTableNotExists("test_rnmo_horse")
+        if connection.features.supports_foreign_keys:
+            self.assertFKExists("test_rnmo_rider", ["pony_id"], ("test_rnmo_pony", "id"))
+            self.assertFKNotExists("test_rnmo_rider", ["pony_id"], ("test_rnmo_horse", "id"))
+        # Migrate forwards
+        new_state = project_state.clone()
+        atomic_rename = connection.features.supports_atomic_references_rename
+        new_state = self.apply_operations("test_rnmo", new_state, [operation], atomic=atomic_rename)
+        # Test new state and database
+        self.assertNotIn(("test_rnmo", "pony"), new_state.models)
+        self.assertIn(("test_rnmo", "horse"), new_state.models)
+        # RenameModel also repoints all incoming FKs and M2Ms
+        self.assertEqual(
+            new_state.models['test_rnmo', 'rider'].fields['pony'].remote_field.model,
+            'test_rnmo.Horse',
+        )
+        self.assertTableNotExists("test_rnmo_pony")
+        self.assertTableExists("test_rnmo_horse")
+        if connection.features.supports_foreign_keys:
+            self.assertFKNotExists("test_rnmo_rider", ["pony_id"], ("test_rnmo_pony", "id"))
+            self.assertFKExists("test_rnmo_rider", ["pony_id"], ("test_rnmo_horse", "id"))
+        # Migrate backwards
+        original_state = self.unapply_operations("test_rnmo", project_state, [operation], atomic=atomic_rename)
+        # Test original state and database
+        self.assertIn(("test_rnmo", "pony"), original_state.models)
+        self.assertNotIn(("test_rnmo", "horse"), original_state.models)
+        self.assertEqual(
+            original_state.models['test_rnmo', 'rider'].fields['pony'].remote_field.model,
+            'Pony',
+        )
+        self.assertTableExists("test_rnmo_pony")
+        self.assertTableNotExists("test_rnmo_horse")
+        if connection.features.supports_foreign_keys:
+            self.assertFKExists("test_rnmo_rider", ["pony_id"], ("test_rnmo_pony", "id"))
+            self.assertFKNotExists("test_rnmo_rider", ["pony_id"], ("test_rnmo_horse", "id"))
+        # And deconstruction
+        definition = operation.deconstruct()
+        self.assertEqual(definition[0], "RenameModel")
+</output>
+
+STEP 19
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "cat <<EOF > reproduce_issue.py\nimport os\nimport django\nfrom django.conf import settings\nfrom django.db import migrations, connection\nfrom django.db.migrations.state import ProjectState, ModelState\nfrom django.db.migrations.executor import MigrationExecutor\n\n# Configure Django\nsettings.configure(\n    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    },\n    INSTALLED_APPS=['reproduce_app'],\n)\ndjango.setup()\n\ndef run_test():\n    # 1. Initial state: Model with db_table\n    model_state = ModelState(\n        'reproduce_app',\n        'OldModel',\n        fields=[\n            ('id', django.db.models.AutoField(primary_key=True)),\n        ],\n        options={'db_table': 'custom_table_name'}\n    )\n    project_state = ProjectState()\n    project_state.add_model(model_state)\n\n    # 2. Create the table in the database\n    with connection.schema_editor() as schema_editor:\n        schema_editor.create_model(project_state.apps.get_model('reproduce_app', 'OldModel'))\n\n    print(\"Initial table exists:\", 'custom_table_name' in connection.introspection.table_names())\n\n    # 3. Rename operation\n    operation = migrations.RenameModel(old_name='OldModel', new_name='NewModel')\n    \n    # 4. Prepare new state\n    new_state = project_state.clone()\n    operation.state_forwards('reproduce_app', new_state)\n    \n    # 5. Execute database_forwards and capture SQL\n    print(\"\\nExecuting RenameModel.database_forwards...\")\n    with connection.execute_wrapper(lambda execute, sql, params, many, context: (print(f\"SQL: {sql}\"), execute(sql, params, many, context))[1]):\n        with connection.schema_editor() as schema_editor:\n            operation.database_forwards('reproduce_app', schema_editor, project_state, new_state)\n\n    print(\"\\nFinal table exists:\", 'custom_table_name' in connection.introspection.table_names())\n\nif __name__ == \"__main__\":\n    run_test()\nEOF\n\npython3 reproduce_issue.py\n"}
+
+STEP 20
+TOOL RESULT:
+return_code: 1
+output:
+<returncode>1</returncode>
+<output>
+Traceback (most recent call last):
+  File "/testbed/reproduce_issue.py", line 3, in <module>
+    from django.conf import settings
+  File "/testbed/django/conf/__init__.py", line 19, in <module>
+    from django.utils.deprecation import RemovedInDjango50Warning
+  File "/testbed/django/utils/deprecation.py", line 5, in <module>
+    from asgiref.sync import sync_to_async
+ModuleNotFoundError: No module named 'asgiref'
+</output>
+
+STEP 21
+ASSISTANT THOUGHT:
+THOUGHT:
+The reproduction script failed because `asgiref` is not installed in the environment. I should check the environment and see how tests are usually run. I'll try to install the dependencies if possible, or use the existing test suite to reproduce the issue.
+
+Actually, I can just check if `pip` is available and install the missing dependency, or better, look at how the environment is set up.
+
+Wait, I should check if I can run the existing tests first. If they run, then the environment is mostly correct, and I just need to make sure my script has the right path.
+
+But first, let's see what's installed.
+
+STEP 22
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "pip list"}
+
+STEP 23
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+Package                 Version
+----------------------- ----------
+archspec                0.2.1
+boltons                 23.0.0
+Brotli                  1.0.9
+certifi                 2023.11.17
+cffi                    1.16.0
+charset-normalizer      2.0.4
+conda                   23.11.0
+conda-content-trust     0.2.0
+conda-libmamba-solver   23.12.0
+conda-package-handling  2.2.0
+conda_package_streaming 0.9.0
+cryptography            41.0.7
+distro                  1.8.0
+idna                    3.4
+jsonpatch               1.32
+jsonpointer             2.1
+libmambapy              1.5.3
+menuinst                2.0.1
+packaging               23.1
+pip                     23.3.1
+platformdirs            3.10.0
+pluggy                  1.0.0
+pycosat                 0.6.6
+pycparser               2.21
+pyOpenSSL               23.2.0
+PySocks                 1.7.1
+requests                2.31.0
+ruamel.yaml             0.17.21
+setuptools              68.2.2
+tqdm                    4.65.0
+truststore              0.8.0
+urllib3                 1.26.18
+wheel                   0.41.2
+zstandard               0.19.0
+</output>
+
+STEP 24
+ASSISTANT THOUGHT:
+THOUGHT:
+The environment is missing `asgiref`, which is a dependency for Django. I will attempt to install it along with other common Django test dependencies to ensure the reproduction script can run.
+
+I will also refine the reproduction script to better demonstrate the issue. The goal is to show that `RenameModel` performs database operations even when `db_table` is explicitly set and remains unchanged.
+
+I'll start by installing `asgiref`.
+
+STEP 25
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "pip install asgiref"}
+
+STEP 26
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+Collecting asgiref
+  Downloading asgiref-3.11.1-py3-none-any.whl.metadata (9.3 kB)
+Downloading asgiref-3.11.1-py3-none-any.whl (24 kB)
+Installing collected packages: asgiref
+Successfully installed asgiref-3.11.1
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+</output>
+
+STEP 27
+ASSISTANT THOUGHT:
+THOUGHT:
+The reproduction script failed because `asgiref` was missing. I have now installed it. I will now run the reproduction script again to confirm that `RenameModel` performs unnecessary database operations when `db_table` is set.
+
+The script creates a model with a custom `db_table`, then performs a `RenameModel` operation. I expect to see SQL commands like `ALTER TABLE` or table recreation (in SQLite) even though the `db_table` hasn't changed.
+
+I'll also update the script to include a related model with a foreign key, as the PR description mentions that in Postgres it drops and recreates foreign key constraints. Even on SQLite, we can see if it tries to alter the foreign key.
+
+STEP 28
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "cat <<EOF > reproduce_issue.py\nimport os\nimport django\nfrom django.conf import settings\nfrom django.db import migrations, connection, models\nfrom django.db.migrations.state import ProjectState, ModelState\n\n# Configure Django\nif not settings.configured:\n    settings.configure(\n        DATABASES={\n            'default': {\n                'ENGINE': 'django.db.backends.sqlite3',\n                'NAME': ':memory:',\n            }\n        },\n        INSTALLED_APPS=['reproduce_app'],\n    )\n    django.setup()\n\ndef run_test():\n    # 1. Initial state: Model with db_table and a related model\n    old_model_state = ModelState(\n        'reproduce_app',\n        'OldModel',\n        fields=[\n            ('id', models.AutoField(primary_key=True)),\n        ],\n        options={'db_table': 'custom_table_name'}\n    )\n    related_model_state = ModelState(\n        'reproduce_app',\n        'RelatedModel',\n        fields=[\n            ('id', models.AutoField(primary_key=True)),\n            ('old_model', models.ForeignKey('OldModel', on_models_delete=models.CASCADE)),\n        ]\n    )\n    \n    project_state = ProjectState()\n    project_state.add_model(old_model_state)\n    project_state.add_model(related_model_state)\n\n    # 2. Create the tables in the database\n    with connection.schema_editor() as schema_editor:\n        schema_editor.create_model(project_state.apps.get_model('reproduce_app', 'OldModel'))\n        schema_editor.create_model(project_state.apps.get_model('reproduce_app', 'RelatedModel'))\n\n    print(\"Initial tables:\", [t for t in connection.introspection.table_names() if not t.startswith('django_')])\n\n    # 3. Rename operation\n    operation = migrations.RenameModel(old_name='OldModel', new_name='NewModel')\n    \n    # 4. Prepare new state\n    new_state = project_state.clone()\n    operation.state_forwards('reproduce_app', new_state)\n    \n    # 5. Execute database_forwards and capture SQL\n    print(\"\\nExecuting RenameModel.database_forwards...\")\n    captured_sql = []\n    def logger(execute, sql, params, many, context):\n        captured_sql.append(sql)\n        return execute(sql, params, many, context)\n\n    with connection.execute_wrapper(logger):\n        with connection.schema_editor() as schema_editor:\n            operation.database_forwards('reproduce_app', schema_editor, project_state, new_state)\n\n    if not captured_sql:\n        print(\"No SQL executed (noop).\")\n    else:\n        for sql in captured_sql:\n            print(f\"SQL: {sql}\")\n\n    print(\"\\nFinal tables:\", [t for t in connection.introspection.table_names() if not t.startswith('django_')])\n\nif __name__ == \"__main__\":\n    run_test()\nEOF\n\npython3 reproduce_issue.py\n"}
+
+STEP 29
+TOOL RESULT:
+return_code: 1
+output:
+<returncode>1</returncode>
+<output>
+Traceback (most recent call last):
+  File "/testbed/reproduce_issue.py", line 18, in <module>
+    django.setup()
+  File "/testbed/django/__init__.py", line 24, in setup
+    apps.populate(settings.INSTALLED_APPS)
+  File "/testbed/django/apps/registry.py", line 91, in populate
+    app_config = AppConfig.create(entry)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/testbed/django/apps/config.py", line 187, in create
+    import_module(entry)
+  File "/opt/miniconda3/lib/python3.11/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1204, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1176, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1140, in _find_and_load_unlocked
+ModuleNotFoundError: No module named 'reproduce_app'
+</output>
+
+STEP 30
+ASSISTANT THOUGHT:
+THOUGHT:
+The reproduction script failed because `reproduce_app` is not a real installed app. I will modify the script to use a dummy app name that doesn't require a physical directory, or I'll create a directory for it. Django's `AppConfig.create` expects to be able to import the app.
+
+Actually, I can just use an existing app from the test suite or create a minimal one. Let's just create a directory.
+
+I'll also fix the `on_models_delete` typo (it should be `on_delete`).
+
+Wait, I can just use `migrations.state.ModelState` and `ProjectState` without needing a full app in `INSTALLED_APPS` if I'm careful, but `django.setup()` and `apps.get_model` might still complain.
+
+Let's try a simpler approach for the reproduction script.
+
+I will also check the `RenameModel.database_forwards` implementation again.
+
+```python
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        new_model = to_state.apps.get_model(app_label, self.new_name)
+        if self.allow_migrate_model(schema_editor.connection.alias, new_model):
+            old_model = from_state.apps.get_model(app_label, self.old_name)
+            # Move the main table
+            schema_editor.alter_db_table(
+                new_model,
+                old_model._meta.db_table,
+                new_model._meta.db_table,
+            )
+```
+
+If `old_model._meta.db_table == new_model._meta.db_table`, then `schema_editor.alter_db_table` is called with the same table name for both `old_table` and `new_table`.
+
+Let's see what `alter_db_table` does in `django/db/backends/base/schema.py`.
+
+[Calls bash tool: {"command": "grep -n \"def alter_db_table\" django/db/backends/base/schema.py"}]
+
+STEP 31
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "grep -n \"def alter_db_table\" django/db/backends/base/schema.py"}
+
+STEP 32
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+468:    def alter_db_table(self, model, old_db_table, new_db_table):
+483:    def alter_db_tablespace(self, model, old_db_tablespace, new_db_tablespace):
+</output>
+
+STEP 33
+ASSISTANT THOUGHT:
+THOUGHT:
+I will examine the `alter_db_table` implementation in `django/db/backends/base/schema.py` to see how it handles cases where the old and new table names are identical.
+
+Then, I will check the SQLite and Postgres implementations of `alter_db_table` to understand why they perform operations even when the table name hasn't changed.
+
+Finally, I will create a more robust reproduction script that avoids the `ModuleNotFoundError` by creating a dummy app directory.
+
+STEP 34
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "sed -n '468,482p' django/db/backends/base/schema.py"}
+
+STEP 35
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+    def alter_db_table(self, model, old_db_table, new_db_table):
+        """Rename the table a model points to."""
+        if (old_db_table == new_db_table or
+            (self.connection.features.ignores_table_name_case and
+                old_db_table.lower() == new_db_table.lower())):
+            return
+        self.execute(self.sql_rename_table % {
+            "old_table": self.quote_name(old_db_table),
+            "new_table": self.quote_name(new_db_table),
+        })
+        # Rename all references to the old table name.
+        for sql in self.deferred_sql:
+            if isinstance(sql, Statement):
+                sql.rename_table_references(old_db_table, new_db_table)
+
+</output>
+
+STEP 36
+ASSISTANT THOUGHT:
+THOUGHT:
+The `alter_db_table` method in `django/db/backends/base/schema.py` already has a check to return early if `old_db_table == new_db_table`. However, `RenameModel.database_forwards` does more than just calling `alter_db_table`. It also calls `schema_editor.alter_field` for all related objects and many-to-many fields.
+
+In `RenameModel.database_forwards`:
+1. It calls `schema_editor.alter_db_table` for the main table.
+2. It iterates over `old_model._meta.related_objects` and calls `schema_editor.alter_field`.
+3. It iterates over M2M fields and calls `schema_editor.alter_db_table` and `schema_editor.alter_field`.
+
+If `db_table` is the same, `alter_db_table` returns early, but `alter_field` is still called. On some backends (like Postgres or SQLite), `alter_field` might trigger table recreation or constraint dropping/recreation even if the field definition hasn't changed, simply because the model name has changed and Django might be trying to update foreign key references or other metadata.
+
+The PR description says: "A RenameModel operation that already has db_table defined must be a noop."
+
+If `old_model._meta.db_table == new_model._meta.db_table`, we should probably skip the entire `database_forwards` logic, or at least the parts that are triggered by the model name change but are redundant when the table name is fixed.
+
+Let's verify if `old_model._meta.db_table` and `new_model._meta.db_table` are indeed equal when `db_table` is set in `Meta`.
+
+I'll try the reproduction script again, but this time I'll create a proper app directory.
+
+STEP 37
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "mkdir -p reproduce_app\ntouch reproduce_app/__init__.py\ncat <<EOF > reproduce_app/models.py\nfrom django.db import models\nclass OldModel(models.Model):\n    class Meta:\n        db_table = 'custom_table_name'\n        app_label = 'reproduce_app'\nEOF\n\ncat <<EOF > reproduce_issue.py\nimport os\nimport django\nfrom django.conf import settings\nfrom django.db import migrations, connection, models\nfrom django.db.migrations.state import ProjectState, ModelState\n\n# Configure Django\nif not settings.configured:\n    settings.configure(\n        DATABASES={\n            'default': {\n                'ENGINE': 'django.db.backends.sqlite3',\n                'NAME': ':memory:',\n            }\n        },\n        INSTALLED_APPS=['reproduce_app'],\n    )\n    django.setup()\n\ndef run_test():\n    from reproduce_app.models import OldModel\n    \n    # 1. Initial state: Model with db_table and a related model\n    old_model_state = ModelState.from_model(OldModel)\n    \n    related_model_state = ModelState(\n        'reproduce_app',\n        'RelatedModel',\n        fields=[\n            ('id', models.AutoField(primary_key=True)),\n            ('old_model', models.ForeignKey('OldModel', on_delete=models.CASCADE)),\n        ],\n        options={'app_label': 'reproduce_app'}\n    )\n    \n    project_state = ProjectState()\n    project_state.add_model(old_model_state)\n    project_state.add_model(related_model_state)\n\n    # 2. Create the tables in the database\n    with connection.schema_editor() as schema_editor:\n        schema_editor.create_model(project_state.apps.get_model('reproduce_app', 'OldModel'))\n        schema_editor.create_model(project_state.apps.get_model('reproduce_app', 'RelatedModel'))\n\n    print(\"Initial tables:\", [t for t in connection.introspection.table_names() if not t.startswith('django_')])\n\n    # 3. Rename operation\n    operation = migrations.RenameModel(old_name='OldModel', new_name='NewModel')\n    \n    # 4. Prepare new state\n    new_state = project_state.clone()\n    operation.state_forwards('reproduce_app', new_state)\n    \n    # 5. Execute database_forwards and capture SQL\n    print(\"\\nExecuting RenameModel.database_forwards...\")\n    captured_sql = []\n    def logger(execute, sql, params, many, context):\n        captured_sql.append(sql)\n        return execute(sql, params, many, context)\n\n    with connection.execute_wrapper(logger):\n        with connection.schema_editor() as schema_editor:\n            operation.database_forwards('reproduce_app', schema_editor, project_state, new_state)\n\n    if not captured_sql:\n        print(\"No SQL executed (noop).\")\n    else:\n        for sql in captured_sql:\n            print(f\"SQL: {sql}\")\n\n    print(\"\\nFinal tables:\", [t for t in connection.introspection.table_names() if not t.startswith('django_')])\n\nif __name__ == \"__main__\":\n    run_test()\nEOF\n\npython3 reproduce_issue.py\n"}
+
+STEP 38
+TOOL RESULT:
+return_code: 1
+output:
+<returncode>1</returncode>
+<output>
+Traceback (most recent call last):
+  File "/testbed/reproduce_issue.py", line 74, in <module>
+    run_test()
+  File "/testbed/reproduce_issue.py", line 41, in run_test
+    with connection.schema_editor() as schema_editor:
+         ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/testbed/django/utils/connection.py", line 15, in __getattr__
+    return getattr(self._connections[self._alias], item)
+                   ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/testbed/django/utils/connection.py", line 62, in __getitem__
+    conn = self.create_connection(alias)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/testbed/django/db/utils.py", line 204, in create_connection
+    backend = load_backend(db['ENGINE'])
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/testbed/django/db/utils.py", line 111, in load_backend
+    return import_module('%s.base' % backend_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/lib/python3.11/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1204, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1176, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1147, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 690, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 940, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/testbed/django/db/backends/sqlite3/base.py", line 33, in <module>
+    from .introspection import DatabaseIntrospection
+  File "/testbed/django/db/backends/sqlite3/introspection.py", line 4, in <module>
+    import sqlparse
+ModuleNotFoundError: No module named 'sqlparse'
+</output>
+
+STEP 39
+ASSISTANT THOUGHT:
+THOUGHT:
+The reproduction script failed because `sqlparse` is missing. I will install it and then run the reproduction script again.
+
+I have already identified that `RenameModel.database_forwards` calls `schema_editor.alter_db_table` and `schema_editor.alter_field` even when the `db_table` remains the same. While `alter_db_table` has an internal check to return early if the table name hasn't changed, `alter_field` does not necessarily have such a check that would prevent it from performing database operations (like recreating the table in SQLite or dropping/recreating foreign keys in Postgres) when the model name changes, even if the underlying table name is the same.
+
+The goal is to make `RenameModel` a no-op if the `db_table` is explicitly set and doesn't change.
+
+I'll install `sqlparse` first.
+
+tool: bash
+arguments: {"command": "pip install sqlparse"}
+
+[Calls bash tool: {"command": "pip install sqlparse"}]
+
+STEP 40
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "pip install sqlparse"}
+
+STEP 41
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+Collecting sqlparse
+  Downloading sqlparse-0.5.5-py3-none-any.whl.metadata (4.7 kB)
+Downloading sqlparse-0.5.5-py3-none-any.whl (46 kB)
+Installing collected packages: sqlparse
+Successfully installed sqlparse-0.5.5
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+</output>
+
+STEP 42
+ASSISTANT THOUGHT:
+THOUGHT:
+I have installed the necessary dependencies and will now run the reproduction script. This script will demonstrate that `RenameModel` performs unnecessary database operations (specifically table recreation in SQLite) even when the `db_table` is explicitly set and remains unchanged.
+
+After confirming the behavior, I will have enough information to propose a fix in `django/db/migrations/operations/models.py`.
+
+STEP 43
+ASSISTANT TOOL CALL:
+tool: bash
+arguments: {"command": "python3 reproduce_issue.py"}
+
+STEP 44
+TOOL RESULT:
+return_code: 0
+output:
+<returncode>0</returncode>
+<output>
+Initial tables: ['custom_table_name', 'reproduce_app_relatedmodel']
+
+Executing RenameModel.database_forwards...
+SQL: PRAGMA foreign_keys = OFF
+SQL: PRAGMA foreign_keys
+SQL: BEGIN
+SQL: CREATE TABLE "new__reproduce_app_relatedmodel" ("id" integer NOT NULL PRIMARY KEY AUTOINCREMENT, "old_model_id" integer NOT NULL REFERENCES "custom_table_name" ("id") DEFERRABLE INITIALLY DEFERRED)
+SQL: INSERT INTO "new__reproduce_app_relatedmodel" ("id", "old_model_id") SELECT "id", "old_model_id" FROM "reproduce_app_relatedmodel"
+SQL: DROP TABLE "reproduce_app_relatedmodel"
+SQL: ALTER TABLE "new__reproduce_app_relatedmodel" RENAME TO "reproduce_app_relatedmodel"
+SQL: CREATE INDEX "reproduce_app_relatedmodel_old_model_id_85fd1374" ON "reproduce_app_relatedmodel" ("old_model_id")
+SQL: PRAGMA foreign_key_check
+SQL: PRAGMA foreign_keys = ON
+
+Final tables: ['custom_table_name', 'reproduce_app_relatedmodel']
+</output>
+
+--------------------------------------------------------------------------------
+
+
+================================================================================
+MODEL RESPONSE
+================================================================================
+
+{'content': 'THOUGHT:\n'
+            'The reproduction script confirms that `RenameModel` triggers '
+            'database operations even when the `db_table` is explicitly set '
+            'and remains unchanged. In the SQLite example, renaming `OldModel` '
+            'to `NewModel` (both using `custom_table_name`) caused '
+            '`RelatedModel` to be recreated because its foreign key was being '
+            '"updated" to point to the new model name, even though the '
+            'underlying table name stayed the same.\n'
+            '\n'
+            'The PR description states that `RenameModel` should be a no-op if '
+            "`db_table` is defined and doesn't change.\n"
+            '\n'
+            'In `django/db/migrations/operations/models.py`, the '
+            '`database_forwards` method of `RenameModel` should check if the '
+            "`db_table` of the model has changed. If it hasn't, it should skip "
+            'the database operations.\n'
+            '\n'
+            'I have identified:\n'
+            '- **Target file**: `django/db/migrations/operations/models.py`\n'
+            '- **Target method**: `RenameModel.database_forwards`\n'
+            "- **Bug hypothesis**: `RenameModel` doesn't check if the "
+            'underlying `db_table` actually changes before proceeding with '
+            '`alter_db_table` and `alter_field` calls.\n'
+            '- **Patch idea**: In `database_forwards`, compare '
+            '`old_model._meta.db_table` and `new_model._meta.db_table`. If '
+            'they are equal, return early.\n'
+            '- **Validation**: Use the `reproduce_issue.py` script and '
+            'existing migration tests.\n'
+            '\n'
+            'I have enough information to proceed to the execution phase.\n'
+            '\n'
+            '**EXECUTION PLAN**\n'
+            '1.  Modify `django/db/migrations/operations/models.py`.\n'
+            '2.  In `RenameModel.database_forwards`, add a check: if '
+            '`old_model._meta.db_table == new_model._meta.db_table`, return '
+            'early.\n'
+            '3.  Verify the fix with `reproduce_issue.py` (it should show "No '
+            'SQL executed").\n'
+            '4.  Run existing tests in `tests/migrations/test_operations.py` '
+            'to ensure no regressions.\n'
+            '\n'
+            '**VALIDATION PLAN**\n'
+            '1.  Run `python3 reproduce_issue.py` and verify that no SQL is '
+            'executed for the `RenameModel` operation.\n'
+            '2.  Run `python3 tests/runtests.py migrations.test_operations` to '
+            'ensure existing tests pass.\n'
+            '\n'
+            '[Calls switch_phase tool: {"phase": "execution", "reason": '
+            '"Confirmed the issue with a reproduction script and identified '
+            'the fix in RenameModel.database_forwards."}]\n'
+            '\n',
+ 'extra': {'actions': [{'phase': 'execution',
+                        'reason': 'Confirmed the issue with a reproduction '
+                                  'script and identified the fix in '
+                                  'RenameModel.database_forwards.',
+                        'tool': 'switch_phase',
+                        'tool_call_id': 'call_465243b3af4f4080838fbce45185__thought__CiEBjz1rX+j0kdvqkZx+9n5lI8zGsTAqXoRl7BTP3Eq36Fs='}],
+           'cost': 0.008350999999999999,
+           'phase': 'exploration',
+           'response': {'choices': [{'finish_reason': 'tool_calls',
+                                     'index': 0,
+                                     'message': {'content': 'THOUGHT:\n'
+                                                            'The reproduction '
+                                                            'script confirms '
+                                                            'that '
+                                                            '`RenameModel` '
+                                                            'triggers database '
+                                                            'operations even '
+                                                            'when the '
+                                                            '`db_table` is '
+                                                            'explicitly set '
+                                                            'and remains '
+                                                            'unchanged. In the '
+                                                            'SQLite example, '
+                                                            'renaming '
+                                                            '`OldModel` to '
+                                                            '`NewModel` (both '
+                                                            'using '
+                                                            '`custom_table_name`) '
+                                                            'caused '
+                                                            '`RelatedModel` to '
+                                                            'be recreated '
+                                                            'because its '
+                                                            'foreign key was '
+                                                            'being "updated" '
+                                                            'to point to the '
+                                                            'new model name, '
+                                                            'even though the '
+                                                            'underlying table '
+                                                            'name stayed the '
+                                                            'same.\n'
+                                                            '\n'
+                                                            'The PR '
+                                                            'description '
+                                                            'states that '
+                                                            '`RenameModel` '
+                                                            'should be a no-op '
+                                                            'if `db_table` is '
+                                                            'defined and '
+                                                            "doesn't change.\n"
+                                                            '\n'
+                                                            'In '
+                                                            '`django/db/migrations/operations/models.py`, '
+                                                            'the '
+                                                            '`database_forwards` '
+                                                            'method of '
+                                                            '`RenameModel` '
+                                                            'should check if '
+                                                            'the `db_table` of '
+                                                            'the model has '
+                                                            'changed. If it '
+                                                            "hasn't, it should "
+                                                            'skip the database '
+                                                            'operations.\n'
+                                                            '\n'
+                                                            'I have '
+                                                            'identified:\n'
+                                                            '- **Target '
+                                                            'file**: '
+                                                            '`django/db/migrations/operations/models.py`\n'
+                                                            '- **Target '
+                                                            'method**: '
+                                                            '`RenameModel.database_forwards`\n'
+                                                            '- **Bug '
+                                                            'hypothesis**: '
+                                                            '`RenameModel` '
+                                                            "doesn't check if "
+                                                            'the underlying '
+                                                            '`db_table` '
+                                                            'actually changes '
+                                                            'before proceeding '
+                                                            'with '
+                                                            '`alter_db_table` '
+                                                            'and `alter_field` '
+                                                            'calls.\n'
+                                                            '- **Patch idea**: '
+                                                            'In '
+                                                            '`database_forwards`, '
+                                                            'compare '
+                                                            '`old_model._meta.db_table` '
+                                                            'and '
+                                                            '`new_model._meta.db_table`. '
+                                                            'If they are '
+                                                            'equal, return '
+                                                            'early.\n'
+                                                            '- **Validation**: '
+                                                            'Use the '
+                                                            '`reproduce_issue.py` '
+                                                            'script and '
+                                                            'existing '
+                                                            'migration tests.\n'
+                                                            '\n'
+                                                            'I have enough '
+                                                            'information to '
+                                                            'proceed to the '
+                                                            'execution phase.\n'
+                                                            '\n'
+                                                            '**EXECUTION '
+                                                            'PLAN**\n'
+                                                            '1.  Modify '
+                                                            '`django/db/migrations/operations/models.py`.\n'
+                                                            '2.  In '
+                                                            '`RenameModel.database_forwards`, '
+                                                            'add a check: if '
+                                                            '`old_model._meta.db_table '
+                                                            '== '
+                                                            'new_model._meta.db_table`, '
+                                                            'return early.\n'
+                                                            '3.  Verify the '
+                                                            'fix with '
+                                                            '`reproduce_issue.py` '
+                                                            '(it should show '
+                                                            '"No SQL '
+                                                            'executed").\n'
+                                                            '4.  Run existing '
+                                                            'tests in '
+                                                            '`tests/migrations/test_operations.py` '
+                                                            'to ensure no '
+                                                            'regressions.\n'
+                                                            '\n'
+                                                            '**VALIDATION '
+                                                            'PLAN**\n'
+                                                            '1.  Run `python3 '
+                                                            'reproduce_issue.py` '
+                                                            'and verify that '
+                                                            'no SQL is '
+                                                            'executed for the '
+                                                            '`RenameModel` '
+                                                            'operation.\n'
+                                                            '2.  Run `python3 '
+                                                            'tests/runtests.py '
+                                                            'migrations.test_operations` '
+                                                            'to ensure '
+                                                            'existing tests '
+                                                            'pass.\n'
+                                                            '\n'
+                                                            '[Calls '
+                                                            'switch_phase '
+                                                            'tool: {"phase": '
+                                                            '"execution", '
+                                                            '"reason": '
+                                                            '"Confirmed the '
+                                                            'issue with a '
+                                                            'reproduction '
+                                                            'script and '
+                                                            'identified the '
+                                                            'fix in '
+                                                            'RenameModel.database_forwards."}]\n'
+                                                            '\n',
+                                                 'function_call': None,
+                                                 'images': [],
+                                                 'provider_specific_fields': {'thought_signatures': ['CiEBjz1rX+j0kdvqkZx+9n5lI8zGsTAqXoRl7BTP3Eq36Fs=']},
+                                                 'role': 'assistant',
+                                                 'thinking_blocks': [],
+                                                 'tool_calls': [{'function': {'arguments': '{"phase": '
+                                                                                           '"execution", '
+                                                                                           '"reason": '
+                                                                                           '"Confirmed '
+                                                                                           'the '
+                                                                                           'issue '
+                                                                                           'with '
+                                                                                           'a '
+                                                                                           'reproduction '
+                                                                                           'script '
+                                                                                           'and '
+                                                                                           'identified '
+                                                                                           'the '
+                                                                                           'fix '
+                                                                                           'in '
+                                                                                           'RenameModel.database_forwards."}',
+                                                                              'name': 'switch_phase'},
+                                                                 'id': 'call_465243b3af4f4080838fbce45185__thought__CiEBjz1rX+j0kdvqkZx+9n5lI8zGsTAqXoRl7BTP3Eq36Fs=',
+                                                                 'index': 0,
+                                                                 'provider_specific_fields': {'thought_signature': 'CiEBjz1rX+j0kdvqkZx+9n5lI8zGsTAqXoRl7BTP3Eq36Fs='},
+                                                                 'type': 'function'}]}}],
+                        'created': 1773210937,
+                        'id': 'OQ2xabnXON-jq8YP7emy-AE',
+                        'model': 'gemini-3-flash-preview',
+                        'object': 'chat.completion',
+                        'system_fingerprint': None,
+                        'usage': {'cache_read_input_tokens': None,
+                                  'completion_tokens': 583,
+                                  'completion_tokens_details': {'text_tokens': 583},
+                                  'prompt_tokens': 13204,
+                                  'prompt_tokens_details': {'audio_tokens': None,
+                                                            'cached_tokens': None,
+                                                            'image_tokens': None,
+                                                            'text_tokens': 13204},
+                                  'total_tokens': 13787},
+                        'vertex_ai_citation_metadata': [],
+                        'vertex_ai_grounding_metadata': [],
+                        'vertex_ai_safety_results': [],
+                        'vertex_ai_url_context_metadata': []},
+           'step_index': 18,
+           'timestamp': 1773210942.6115232},
+ 'function_call': None,
+ 'images': [],
+ 'provider_specific_fields': {'thought_signatures': ['CiEBjz1rX+j0kdvqkZx+9n5lI8zGsTAqXoRl7BTP3Eq36Fs=']},
+ 'role': 'assistant',
+ 'thinking_blocks': [],
+ 'tool_calls': [{'function': {'arguments': '{"phase": "execution", "reason": '
+                                           '"Confirmed the issue with a '
+                                           'reproduction script and identified '
+                                           'the fix in '
+                                           'RenameModel.database_forwards."}',
+                              'name': 'switch_phase'},
+                 'id': 'call_465243b3af4f4080838fbce45185__thought__CiEBjz1rX+j0kdvqkZx+9n5lI8zGsTAqXoRl7BTP3Eq36Fs=',
+                 'index': 0,
+                 'provider_specific_fields': {'thought_signature': 'CiEBjz1rX+j0kdvqkZx+9n5lI8zGsTAqXoRl7BTP3Eq36Fs='},
+                 'type': 'function'}]}

@@ -1,0 +1,66 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/forms/widgets.py**: Contains the `Media` class and its `merge(list_1, list_2)` static method. This method implements the insertion algorithm responsible for the ordering issues.
+- **django/forms/forms.py**: Manages the aggregation of `Media` objects from multiple widgets. It uses the `__add__` method of `Media`, which stores lists of assets in `self._css_lists` and `self._js_lists` for later merging.
+- **tests/forms_tests/tests/test_media.py**: Contains existing test cases for `Media` combination, including `test_combine_media`, which failed after the initial patch attempt.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The `Media.merge` method is not associative and creates artificial ordering constraints because it assumes the order of the first list (`list_1`) is immutable during a merge.
+
+**Mechanism:**
+1. **Iterative Merging**: When multiple `Media` objects are combined (e.g., `m1 + m2 + m3`), Django stores them as a list of lists. Accessing `.js` or `.css` triggers: `merge(merge(m1, m2), m3)`.
+2. **The "Reverse-Walk" Flaw**: The original `merge(list_1, list_2)` iterates through `list_2` in reverse and inserts elements into `list_1`. This treats the arbitrary relative order of independent elements in `list_1` as a hard constraint.
+3. **Artificial Constraints**: If `m1` and `m2` are independent, `m1 + m2` results in an arbitrary relative order. When `m3` is merged, if it contains a dependency that contradicts this arbitrary order, a `MediaOrderConflictWarning` is raised even if a valid global order exists.
+4. **Forward-Walk Hypothesis**: Switching to a forward-walking merge algorithm (iterating `list_2` from start to finish and inserting after the last seen index) fixes the reported issue but changes the resulting order in existing tests (e.g., `test_combine_media`).
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+**Reproduction Script (`reproduction_simple.py`):**
+```python
+import sys
+import os
+import warnings
+sys.path.insert(0, os.path.abspath(os.getcwd()))
+from django.forms.widgets import Media, MediaOrderConflictWarning
+
+def create_media(js_list):
+    m = Media()
+    m._js_lists = [js_list]
+    return m
+
+media1 = create_media(['color-picker.js'])
+media2 = create_media(['text-editor.js'])
+media3 = create_media(['text-editor.js', 'text-editor-extras.js', 'color-picker.js'])
+
+with warnings.catch_warnings(record=True) as w:
+    warnings.simplefilter("always")
+    res = media1 + media2 + media3
+    js_result = res._js
+    print(f"Actual order: {js_result}")
+    found_warning = any(issubclass(warning.category, MediaOrderConflictWarning) for warning in w)
+    expected_order = ['text-editor.js', 'text-editor-extras.js', 'color-picker.js']
+    if js_result == expected_order and not found_warning:
+        print("SUCCESS: Order is correct and no warnings raised.")
+    else:
+        if js_result != expected_order:
+            print(f"FAILURE: Order mismatch. Expected {expected_order}, got {js_result}")
+        if found_warning:
+            print("FAILURE: MediaOrderConflictWarning was raised.")
+```
+
+**Execution Commands:**
+- `python3 reproduction_simple.py`
+- `PYTHONPATH=. python3 tests/runtests.py forms_tests` (Requires `pip install sqlparse`)
+
+# FAILED PATCH ATTEMPTS
+
+- **Attempt 1 (Syntax Error)**: Refactored `merge` to forward-walking but included a malformed `warnings.warn` call.
+- **Attempt 2 (Destructive Deletion)**: Large-scale refactor of `Media` class resulted in a corrupted file and `ImportError`.
+- **Attempt 3 (Forward-Walk Regression)**:
+    - **Strategy**: Changed `merge` to iterate forward through `list_2` and maintain a `last_insert_index` that moves forward.
+    - **Result**: Successfully fixed the reported bug and suppressed the false-positive warning.
+    - **Failure**: Caused an `AssertionError` in `tests/forms_tests/tests/test_media.py:test_combine_media`. The new algorithm produces a different (though potentially valid) order than the legacy reverse-walk algorithm, breaking tests that rely on the specific historical output of `Media.__add__`.

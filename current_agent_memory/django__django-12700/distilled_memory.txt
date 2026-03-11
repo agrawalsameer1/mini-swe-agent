@@ -1,0 +1,89 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/views/debug.py**: Contains the `SafeExceptionReporterFilter` class and its `cleanse_setting` method.
+- **django/views/debug.py:75**: Definition of `SafeExceptionReporterFilter`.
+- **django/views/debug.py:85**: The `cleanse_setting(self, key, value)` method, which is responsible for redacting sensitive information from settings and request data.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The `SafeExceptionReporterFilter.cleanse_setting` method is designed to recursively redact sensitive information (based on keys matching `hidden_settings` regex). However, its recursive logic is currently limited:
+- It correctly redacts values if the `key` matches the sensitive pattern.
+- It correctly recurses into `dict` objects to cleanse their values.
+- **Bug**: It does **not** recurse into other iterable types such as `list` or `tuple`. If a sensitive dictionary is nested inside a list (e.g., `{'MY_SETTING': [{'secret': 'value'}]}`), the list is returned as-is, leaving the nested sensitive dictionary uncleansed.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+### Environment Setup
+The following dependencies are required to run the reproduction script:
+```bash
+pip install asgiref pytz
+```
+
+### Reproduction Script
+Create a file named `reproduce_issue.py`:
+```python
+import pprint
+from django.conf import settings
+if not settings.configured:
+    settings.configure()
+from django.views.debug import SafeExceptionReporterFilter
+
+MY_SETTING = {
+    "foo": "value",
+    "secret": "value",
+    "token": "value",
+    "something": [
+        {"foo": "value"},
+        {"secret": "value"},
+        {"token": "value"},
+    ],
+    "else": [
+        [
+            {"foo": "value"},
+            {"secret": "value"},
+            {"token": "value"},
+        ],
+    ]
+}
+
+cleansed = SafeExceptionReporterFilter().cleanse_setting("MY_SETTING", MY_SETTING)
+pprint.pprint(cleansed)
+
+def check_cleansed(obj):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if any(s in k.lower() for s in ["secret", "token"]):
+                if v != '********************':
+                    return False
+            if not check_cleansed(v):
+                return False
+    elif isinstance(obj, (list, tuple)):
+        for item in obj:
+            if not check_cleansed(item):
+                return False
+    return True
+
+if not check_cleansed(cleansed):
+    print("FAILURE: Sensitive values not cleansed!")
+    exit(1)
+else:
+    print("SUCCESS: Sensitive values cleansed!")
+    exit(0)
+```
+
+### Execution Command
+```bash
+python3 reproduce_issue.py
+```
+
+### Existing Test Suite
+```bash
+python3 tests/runtests.py view_tests.tests.test_debug
+```
+
+# FAILED PATCH ATTEMPTS
+
+(No failed patch attempts recorded in the exploration phase.)

@@ -1,0 +1,49 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/models/expressions.py**: Contains the `Subquery` class. The `get_group_by_cols` method (around line 1050) is the primary location of the bug. It currently returns a `Ref` when an alias is present, causing SQL ambiguity.
+- **django/db/models/sql/compiler.py**: The `SQLCompiler.get_group_by` method interacts with `get_group_by_cols` to construct the `GROUP BY` clause.
+- **reproduce_bug.py**: A standalone reproduction script that demonstrates the `OperationalError: ambiguous column name` when a `Subquery` alias conflicts with a table column name.
+- **test_exists_group_by.py**: A validation script used to ensure that changes to `Subquery` do not break the grouping behavior of `Exists` annotations (a regression found in earlier attempts).
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism**: When a `Subquery` is used in an annotation with an alias (e.g., `.annotate(status=Subquery(...))`), `Subquery.get_group_by_cols(alias='status')` returns `[Ref('status', self)]`. This results in `GROUP BY "status"` in the generated SQL. If a joined table also contains a column named `status`, the database engine cannot determine whether to group by the alias or the column, leading to an "ambiguous column" error.
+- **Working Hypothesis**: The `Subquery` class should return itself (`[self]`) in `get_group_by_cols` even when an alias is provided. This forces the SQL compiler to output the full subquery SQL (e.g., `GROUP BY (SELECT ...)`) in the `GROUP BY` clause. This avoids name collisions with table columns and restores the behavior observed in Django 2.2.
+- **Refinement**: Unlike standard `Expression` objects, `Subquery` objects are unique enough that grouping by the full expression is safe and prevents the ambiguity introduced by using the alias. `Exists` inherits from `Subquery`, so any fix must ensure `Exists` still correctly includes itself in the `GROUP BY` clause when used in filters or annotations.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+- **Reproduction Script**:
+  ```bash
+  export PYTHONPATH=$PYTHONPATH:.
+  python reproduce_bug.py
+  ```
+- **Regression Check (Exists Grouping)**:
+  ```bash
+  export PYTHONPATH=$PYTHONPATH:.
+  python test_exists_group_by.py
+  ```
+- **Django Test Suite**:
+  ```bash
+  ./tests/runtests.py expressions.tests annotations.tests aggregation.tests
+  ```
+
+# FAILED PATCH ATTEMPTS
+
+- **Attempt 1: Removal of alias check**:
+  - **Hypothesis**: Removing the `if alias:` block would solve the ambiguity.
+  - **Modification**: Changed `get_group_by_cols` to ignore the alias and proceed to `external_cols` logic.
+  - **Result**: **FAILED**. It resolved the ambiguity but caused `Exists` subqueries to be omitted from `GROUP BY` entirely, breaking aggregation logic.
+  - **Lesson**: The subquery must remain in the `GROUP BY` clause; the fix must change *how* it is referenced (expression vs. alias).
+- **Attempt 2: Invalid Imports**:
+  - **Hypothesis**: Attempted a refactor using `FullResultSet`.
+  - **Result**: **FAILED** with `ImportError`.
+  - **Lesson**: Avoid introducing new internal dependencies unless strictly necessary and verified.
+- **Attempt 3: Empty Patch**:
+  - **Result**: **FAILED**. Technical failure in patch generation/saving during the execution phase.
+- **Attempt 4: Returning `[self]` in `get_group_by_cols`**:
+  - **Hypothesis**: Overriding the default `BaseExpression.get_group_by_cols` behavior to return `[self]` instead of a `Ref(alias)` when an alias is present.
+  - **Status**: This is the current lead candidate for a fix.

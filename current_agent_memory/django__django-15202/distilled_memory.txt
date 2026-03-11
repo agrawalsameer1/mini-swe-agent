@@ -1,0 +1,52 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/core/validators.py**: The `URLValidator.__call__` method contains multiple calls to `urllib.parse.urlsplit` that are not protected by `try...except ValueError`.
+    - Line 138 (approx): `host_match = re.search(r'^\[(.+)\](?::\d{1,5})?$', urlsplit(value).netloc)`
+    - Line 148 (approx): `if len(urlsplit(value).hostname) > 253:`
+- **django/forms/fields.py**: `URLField.to_python` performs initial URL normalization. It has a `split_url` helper that *does* catch `ValueError`, but it transforms certain malformed inputs (like `////]@N.AN`) into strings (like `http://]@N.AN`) that pass the initial regex check in `URLValidator` but then trigger a `ValueError` in subsequent `urlsplit` calls within the validator.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug occurs because `urllib.parse.urlsplit` raises a `ValueError: Invalid IPv6 URL` when it encounters a URL containing a `[` or `]` in the netloc that does not conform to IPv6 formatting.
+
+1.  A malformed URL like `////]@N.AN` is passed to `URLField.clean`.
+2.  `URLField.to_python` normalizes this to `http://]@N.AN`.
+3.  `URLValidator.__call__` is invoked.
+4.  The initial `RegexValidator.__call__(value)` (via `super().__call__(value)`) actually **passes** for `http://]@N.AN` because the `host_re` or other parts of the regex might be permissive enough, or the logic enters the `else` block of the `try...except ValidationError`.
+5.  Inside the `else` block (intended for further IPv6 or length verification), `urlsplit(value)` is called again.
+6.  `urllib.parse.urlsplit` throws `ValueError: Invalid IPv6 URL`.
+7.  Since this is inside a validator, the `ValueError` bubbles up and causes a 500 error instead of being caught and converted into a `ValidationError`.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+### Reproduction Script (`reproduce_issue.py`)
+```python
+from django import forms
+from django.core.exceptions import ValidationError
+
+try:
+    # This specific string triggers the ValueError in urlsplit during validation
+    forms.URLField().clean('////]@N.AN')
+    print("Clean successful")
+except ValidationError as e:
+    print(f"Caught expected ValidationError: {e}")
+except ValueError as e:
+    print(f"Caught unexpected ValueError: {e}")
+    import traceback
+    traceback.print_exc()
+except Exception as e:
+    print(f"Caught unexpected exception: {type(e).__name__}: {e}")
+```
+
+### Execution Command
+```bash
+pip install asgiref # Ensure dependencies are met
+python reproduce_issue.py
+```
+
+# FAILED PATCH ATTEMPTS
+
+*(No failed patch attempts recorded in the exploration phase.)*

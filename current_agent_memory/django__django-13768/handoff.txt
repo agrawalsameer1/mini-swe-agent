@@ -1,0 +1,26 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: `Signal.send_robust()` in `django/dispatch/dispatcher.py` catches exceptions raised by signal receivers to ensure all receivers are notified, but it does not log these exceptions. This makes it difficult for developers to monitor and debug failures in signal handlers. The fix involves adding a `logger.exception()` call within the `except` block of the `send_robust` method.
+
+2. **Primary Target File**: `django/dispatch/dispatcher.py`
+
+3. **Implementation Steps**:
+    - Open `django/dispatch/dispatcher.py`.
+    - At the top of the file, import the `logging` module: `import logging`.
+    - Define a logger for the module: `logger = logging.getLogger('django.dispatch')`.
+    - Locate the `send_robust` method within the `Signal` class.
+    - In the `except Exception as err:` block of the `send_robust` method, add a call to `logger.exception()` before appending the error to the responses list.
+    - The log message should include context about the receiver that failed, for example: `logger.exception('Error calling %s in Signal.send_robust()', receiver)`.
+
+4. **Verification**:
+    - Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+- Run the newly created test case that specifically checks for logging in `send_robust`:
+  `export PYTHONPATH=$PYTHONPATH:. && python3 ./tests/runtests.py dispatch.test_robust_logging`
+- Run the existing dispatch tests to ensure no regressions:
+  `export PYTHONPATH=$PYTHONPATH:. && python3 ./tests/runtests.py dispatch.tests`
+- (Optional) If the environment allows, run the manual reproduction script:
+  `export PYTHONPATH=$PYTHONPATH:. && python3 reproduce_issue.py` (Note: This requires `asgiref`, `pytz`, and `sqlparse` to be installed as per the exploration transcript).

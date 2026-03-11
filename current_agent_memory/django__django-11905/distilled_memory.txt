@@ -1,0 +1,60 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/models/lookups.py**: Contains the `IsNull` class (lines 461-470). This is the primary location for implementing the `__init__` method to validate that `rhs` is a boolean or `None`.
+- **tests/lookup/models.py**: Defines `IsNullWithNoneAsRHS(IsNull)`, a subclass that sets `can_use_none_as_rhs = True`. This confirms that `IsNull` must support `None` as a valid `rhs` value for inheritance compatibility.
+- **tests/lookup/tests.py**: Contains `test_custom_lookup_none_rhs`, which serves as a regression test for the `None` value support in `IsNull` subclasses.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism**: The `IsNull` lookup currently accepts any Python object as `rhs`. In its `as_sql` method, it performs a truthiness check (`if self.rhs:`). This causes non-boolean values like `"truthy"` or `1` to generate `IS NULL` SQL, while `""` or `0` generate `IS NOT NULL`. This behavior is implicit and often leads to developer errors where non-boolean filters are applied unintentionally.
+- **Hypothesis**: Adding a strict type check in `IsNull.__init__` will prevent these errors.
+- **Refined Hypothesis**: The validation must allow `True`, `False`, and `None`. While the standard `__isnull` lookup expects a boolean, the Django lookup system allows `None` to be passed to lookups that specify `can_use_none_as_rhs = True`. Restricting to `bool` only (as seen in Failed Attempt 2) breaks existing functionality for custom lookups.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+**Validation Script (`reproduce_isnull_v2.py`):**
+```python
+import django
+from django.conf import settings
+from django.db.models.lookups import IsNull
+from django.db.models.expressions import Col
+
+if not settings.configured:
+    settings.configure(DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}})
+    django.setup()
+
+lhs = Col('table', 'field')
+# Should pass (Standard usage and Subclass compatibility)
+for val in [True, False, None]:
+    try:
+        IsNull(lhs, val)
+        print(f"Value {val} passed")
+    except Exception as e:
+        print(f"Value {val} failed: {e}")
+
+# Should fail (The bug/feature request)
+for val in ['truthy', '', 1, 0]:
+    try:
+        IsNull(lhs, val)
+        print(f"Value {repr(val)} unexpectedly passed")
+    except ValueError as e:
+        print(f"Caught expected error for {repr(val)}: {e}")
+```
+
+**Regression Test Command:**
+`python tests/runtests.py lookup.tests.LookupTests.test_custom_lookup_none_rhs`
+
+# FAILED PATCH ATTEMPTS
+
+- **Attempt 1**:
+    - **Strategy**: Added boolean validation to multiple lookups (`IExact`, `PatternLookup`).
+    - **Failure Reason**: Caused regressions in string-based lookups which are intended to handle non-boolean values.
+- **Attempt 2**:
+    - **Strategy**: Added `if not isinstance(rhs, bool): raise ValueError(...)` to `IsNull.__init__`.
+    - **Failure Reason**: Broke `test_custom_lookup_none_rhs` because the subclass `IsNullWithNoneAsRHS` passes `None` to the constructor.
+- **Attempt 3 (Validation Phase)**:
+    - **Strategy**: Attempted to apply a patch with the correct logic (`if not isinstance(rhs, bool) and rhs is not None`).
+    - **Failure Reason**: The patch was malformed and contained massive unintended deletions and an invalid import (`FullResultSet` from `django.core.exceptions`), causing an `ImportError` that prevented Django from loading. The logic itself was sound, but the file state was corrupted. (File has since been restored via `git checkout`).

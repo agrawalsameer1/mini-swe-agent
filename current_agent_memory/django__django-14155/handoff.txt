@@ -1,0 +1,56 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: `ResolverMatch.__init__` does not unwrap `functools.partial` objects. Consequently, the `_func_path` (used in `__repr__`) points to `functools.partial` instead of the actual view function, and the arguments stored in the partial object are not merged into the `ResolverMatch` metadata.
+2. **Primary Target**: `django/urls/resolvers.py`, specifically the `ResolverMatch.__init__` method.
+3. **Logic Changes**:
+    - Import `functools` at the top of `django/urls/resolvers.py` (if not already present).
+    - In `ResolverMatch.__init__`, check if the provided `func` is an instance of `functools.partial`.
+    - If it is a partial:
+        - Update `self.args` by prepending `func.args` to the provided `args`.
+        - Update `self.kwargs` by merging `func.keywords` into the provided `kwargs`.
+        - Update `self.func` to be the underlying function (`func.func`).
+    - Ensure this unwrapping happens *before* `self._func_path` is calculated so that the path reflects the underlying function.
+4. **Implementation Steps**:
+    - Open `django/urls/resolvers.py`.
+    - Locate `class ResolverMatch`.
+    - Modify `__init__` to handle `functools.partial`:
+      ```python
+      if isinstance(func, functools.partial):
+          self.args = func.args + args
+          self.kwargs = {**func.keywords, **kwargs}
+          self.func = func.func
+      else:
+          self.func = func
+          self.args = args
+          self.kwargs = kwargs
+      ```
+    - Ensure the rest of the `__init__` method uses these updated values to compute `self._func_path` and `self.view_name`.
+5. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Create and run a reproduction script `reproduce_issue.py` with the following content:
+```python
+import functools
+from django.urls import ResolverMatch
+
+def my_view(request, arg1, arg2):
+    return None
+
+partial_view = functools.partial(my_view, arg1='foo')
+match = ResolverMatch(partial_view, args=(), kwargs={'arg2': 'bar'})
+
+print(f"Repr: {repr(match)}")
+print(f"Func path: {match._func_path}")
+
+# Assertions to ensure fix
+assert "my_view" in repr(match)
+assert "functools.partial" not in match._func_path
+assert match.kwargs == {'arg1': 'foo', 'arg2': 'bar'}
+```
+- Run the existing URL resolver tests:
+  `python3 tests/runtests.py urlpatterns.test_resolvers`
+- Run the reproduction script:
+  `python3 reproduce_issue.py`

@@ -1,0 +1,68 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `URLValidator.__call__` method in `django/core/validators.py` calls `urllib.parse.urlsplit` in its `else` block (when the initial regex check passes or is bypassed) and at the end of the method without wrapping it in a `try...except ValueError` block. Certain malformed strings (like those containing `[` or `]` in invalid positions) cause `urlsplit` to raise a `ValueError: Invalid IPv6 URL`, which propagates out of the form's `clean()` method instead of being converted to a `ValidationError`.
+
+2. **Primary Target File**: `django/core/validators.py`
+   - **Class**: `URLValidator`
+   - **Method**: `__call__`
+
+3. **Logic Changes**:
+   - Locate the `else` block of the `try: super().__call__(value)` statement (around line 136).
+   - Wrap the logic that uses `urlsplit(value)` inside this `else` block and the subsequent length check in a `try...except ValueError` block.
+   - If a `ValueError` is caught, raise a `ValidationError` using the validator's default message and code.
+   - Specifically, the calls to `urlsplit(value).netloc` and `urlsplit(value).hostname` must be protected.
+
+4. **Detailed Implementation Steps**:
+   - Open `django/core/validators.py`.
+   - In `URLValidator.__call__`, find the section:
+     ```python
+     else:
+         # Now verify IPv6 in the netloc part
+         host_match = re.search(r'^\[(.+)\](?::\d{1,5})?$', urlsplit(value).netloc)
+         ...
+     # The maximum length of a full host name is 253 characters...
+     if len(urlsplit(value).hostname) > 253:
+         raise ValidationError(self.message, code=self.code, params={'value': value})
+     ```
+   - Modify it to:
+     ```python
+     else:
+         try:
+             split_result = urlsplit(value)
+         except ValueError:
+             raise ValidationError(self.message, code=self.code, params={'value': value})
+
+         # Now verify IPv6 in the netloc part
+         host_match = re.search(r'^\[(.+)\](?::\d{1,5})?$', split_result.netloc)
+         if host_match:
+             potential_ip = host_match[1]
+             try:
+                 validate_ipv6_address(potential_ip)
+             except ValidationError:
+                 raise ValidationError(self.message, code=self.code, params={'value': value})
+
+     # The maximum length of a full host name is 253 characters...
+     try:
+         hostname = urlsplit(value).hostname
+     except ValueError:
+         raise ValidationError(self.message, code=self.code, params={'value': value})
+
+     if hostname and len(hostname) > 253:
+         raise ValidationError(self.message, code=self.code, params={'value': value})
+     ```
+   - Note: Ensure `hostname` is checked for `None` before calling `len()` to avoid `TypeError`.
+
+5. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Run the reproduction script created during exploration:
+  `python reproduce_issue.py`
+- Run the existing Django validator tests to ensure no regressions:
+  `python ./tests/runtests.py validators`
+- Run the existing Django form field tests:
+  `python ./tests/runtests.py forms_tests.field_tests.test_urlfield`
+- Verify the fix with the debug script that simulates the `URLField` transformation:
+  `python debug_reproduce.py`

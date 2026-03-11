@@ -1,0 +1,96 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `SafeExceptionReporterFilter.cleanse_setting` method in `django/views/debug.py` only performs recursive cleansing for `dict` types. When a setting contains sensitive information nested within other iterable types (like `list` or `tuple`), the recursion stops, and the sensitive data remains exposed.
+2. **Primary Target File**: `django/views/debug.py`
+3. **Target Function**: `SafeExceptionReporterFilter.cleanse_setting` (starting around line 84).
+4. **Logic Change**:
+    - Currently, the method checks `if self.hidden_settings.search(key)` to redact the value, or `elif isinstance(value, dict)` to recurse into dictionary keys.
+    - Add a new `elif` branch to check if `value` is an instance of `list` or `tuple`.
+    - If it is a `list` or `tuple`, use a generator expression to call `self.cleanse_setting(key, item)` for every `item` in the value, and wrap the result back into the original type (`list` or `tuple`).
+    - Note: The `key` passed to the recursive call for list/tuple items should be the same `key` as the parent, as the items themselves don't have individual keys in the same way dictionary values do.
+5. **Implementation Details**:
+    - Open `django/views/debug.py`.
+    - Locate `def cleanse_setting(self, key, value):`.
+    - Modify the `try` block to look like this:
+      ```python
+      try:
+          if self.hidden_settings.search(key):
+              cleansed = self.cleansed_substitute
+          elif isinstance(value, dict):
+              cleansed = {k: self.cleanse_setting(k, v) for k, v in value.items()}
+          elif isinstance(value, (list, tuple)):
+              cleansed = type(value)(self.cleanse_setting(key, item) for item in value)
+          else:
+              cleansed = value
+      except TypeError:
+          # If the key isn't regex-able, just return as-is.
+          cleansed = value
+      ```
+6. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Create and run the reproduction script `reproduce_issue.py` (as seen in the exploration transcript) to confirm the fix:
+  ```bash
+  cat <<EOF > reproduce_issue.py
+  import pprint
+  from django.conf import settings
+  if not settings.configured:
+      settings.configure()
+  from django.views.debug import SafeExceptionReporterFilter
+
+  MY_SETTING = {
+      "foo": "value",
+      "secret": "value",
+      "token": "value",
+      "something": [
+          {"foo": "value"},
+          {"secret": "value"},
+          {"token": "value"},
+      ],
+      "else": [
+          [
+              {"foo": "value"},
+              {"secret": "value"},
+              {"token": "value"},
+          ],
+          [
+              {"foo": "value"},
+              {"secret": "value"},
+              {"token": "value"},
+          ],
+      ]
+  }
+
+  cleansed = SafeExceptionReporterFilter().cleanse_setting("MY_SETTING", MY_SETTING)
+  pprint.pprint(cleansed)
+
+  def check_cleansed(obj):
+      if isinstance(obj, dict):
+          for k, v in obj.items():
+              if any(s in k.lower() for s in ["secret", "token"]):
+                  if v != '********************':
+                      return False
+              if not check_cleansed(v):
+                  return False
+      elif isinstance(obj, (list, tuple)):
+          for item in obj:
+              if not check_cleansed(item):
+                  return False
+      return True
+
+  if not check_cleansed(cleansed):
+      print("FAILURE: Sensitive values not cleansed!")
+      exit(1)
+  else:
+      print("SUCCESS: Sensitive values cleansed!")
+      exit(0)
+  EOF
+  python3 reproduce_issue.py
+  ```
+- Run existing Django debug view tests to ensure no regressions:
+  ```bash
+  python3 tests/runtests.py view_tests.tests.test_debug
+  ```

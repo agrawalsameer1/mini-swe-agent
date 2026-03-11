@@ -1,0 +1,113 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/contrib/auth/migrations/0011_update_proxy_permissions.py**: This is the migration file causing the `IntegrityError`. The function `update_proxy_model_permissions` performs a bulk `.update()` on `Permission` objects, changing their `content_type` from the concrete model to the proxy model.
+- **tests/auth_tests/test_migrations.py**: Contains existing tests for this migration, which should be used for regression testing.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug is an `IntegrityError` (specifically a unique constraint violation) occurring during the execution of migration `0011_update_proxy_permissions`.
+
+**Mechanism:**
+1.  The migration identifies permissions associated with a concrete model that should belong to its proxy model.
+2.  It attempts to update the `content_type_id` of these permissions from the concrete model's ID to the proxy model's ID.
+3.  If a permission with the same `codename` already exists for the proxy model's `content_type_id` (e.g., created manually or by a previous failed/partial migration run), the update violates the unique constraint on `(content_type_id, codename)`.
+4.  This is particularly common in environments where models were converted to proxy models after permissions were already generated for both, or in certain upgrade scenarios from Django 2.0 to 2.1+.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+The following script reproduces the `IntegrityError` by creating colliding permissions before running the migration logic:
+
+```bash
+cat <<EOF > reproduce_issue.py
+import os
+import django
+from django.conf import settings
+from django.apps import apps
+
+if not settings.configured:
+    settings.configure(
+        INSTALLED_APPS=[
+            'django.contrib.auth',
+            'django.contrib.contenttypes',
+        ],
+        DATABASES={
+            'default': {
+                'ENGINE': 'django.db.backends.sqlite3',
+                'NAME': ':memory:',
+            }
+        },
+    )
+
+django.setup()
+
+from django.db import models, connection, IntegrityError
+from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
+from django.core.management import call_command
+
+# Define models
+class ConcreteModel(models.Model):
+    class Meta:
+        app_label = 'reproduce_app'
+
+class ProxyModel(ConcreteModel):
+    class Meta:
+        app_label = 'reproduce_app'
+        proxy = True
+
+# Manually run migrations for auth and contenttypes up to 0010
+call_command('migrate', 'contenttypes', verbosity=0)
+call_command('migrate', 'auth', '0010', verbosity=0)
+
+concrete_ct = ContentType.objects.get_for_model(ConcreteModel)
+proxy_ct = ContentType.objects.get_for_model(ProxyModel, for_concrete_model=False)
+
+# Create permission for concrete model (what the migration expects to move)
+p1 = Permission.objects.create(
+    content_type=concrete_ct,
+    codename='add_proxymodel',
+    name='Can add proxy model'
+)
+
+# Create permission for proxy model (what causes the collision)
+p2 = Permission.objects.create(
+    content_type=proxy_ct,
+    codename='add_proxymodel',
+    name='Can add proxy model'
+)
+
+# Run the migration logic
+import importlib
+migration_module = importlib.import_module('django.contrib.auth.migrations.0011_update_proxy_permissions')
+update_proxy_model_permissions = migration_module.update_proxy_model_permissions
+
+class FakeApp:
+    def get_model(self, app_label, model_name):
+        return apps.get_model(app_label, model_name)
+    def get_models(self):
+        return [ProxyModel]
+
+try:
+    update_proxy_model_permissions(FakeApp(), None)
+    print("Migration successful")
+except IntegrityError as e:
+    print(f"Migration failed with IntegrityError: {e}")
+    exit(1)
+except Exception as e:
+    print(f"Migration failed: {type(e).__name__}: {e}")
+    exit(1)
+EOF
+python reproduce_issue.py
+```
+
+**Validation of existing tests:**
+```bash
+pytest tests/auth_tests/test_migrations.py
+```
+
+# FAILED PATCH ATTEMPTS
+
+*(No patch attempts have been made yet in this session.)*

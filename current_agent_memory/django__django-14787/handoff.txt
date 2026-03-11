@@ -1,0 +1,41 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `method_decorator` utility in Django converts a function decorator into a method decorator by wrapping the method in a `functools.partial` object to handle the `self` argument. However, `functools.partial` objects do not inherit the metadata (like `__name__`, `__module__`, `__doc__`) of the underlying function. When the user-provided decorator (e.g., one using `functools.wraps`) attempts to access these attributes on the passed object, it raises an `AttributeError`.
+2. **Primary Target File**: `django/utils/decorators.py`
+3. **Target Function**: `_multi_decorate` (specifically the inner `_wrapper` function).
+4. **Logic Change**:
+    - Locate the `_wrapper` function inside `_multi_decorate`.
+    - Identify the line where `bound_method` is initialized: `bound_method = partial(method.__get__(self, type(self)))`.
+    - Immediately after this initialization, call `update_wrapper(bound_method, method)`.
+    - This ensures that the `bound_method` (which is a `partial` object) has all the expected attributes of the original `method` before it is passed to the user's decorators.
+5. **Implementation Details**:
+    - File: `django/utils/decorators.py`
+    - Current code in `_wrapper`:
+      ```python
+      def _wrapper(self, *args, **kwargs):
+          bound_method = partial(method.__get__(self, type(self)))
+          for dec in decorators:
+              bound_method = dec(bound_method)
+          return bound_method(*args, **kwargs)
+      ```
+    - Updated code in `_wrapper`:
+      ```python
+      def _wrapper(self, *args, **kwargs):
+          bound_method = partial(method.__get__(self, type(self)))
+          update_wrapper(bound_method, method)  # Add this line
+          for dec in decorators:
+              bound_method = dec(bound_method)
+          return bound_method(*args, **kwargs)
+      ```
+6. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Run the reproduction script created during exploration:
+  `python reproduce_issue.py`
+- Run the existing Django decorator tests to ensure no regressions:
+  `python -m django.test decorators`
+- Run the broader utility tests:
+  `python -m django.test utils_tests.test_decorators` (if it exists, otherwise stick to the `decorators` test label)

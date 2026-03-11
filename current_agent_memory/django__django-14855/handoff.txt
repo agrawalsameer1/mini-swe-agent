@@ -1,0 +1,38 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `AdminReadonlyField.get_admin_url` method in `django/contrib/admin/helpers.py` fails to pass the `current_app` argument to the `reverse` function. This causes Django to resolve the URL using the default `'admin'` namespace instead of the namespace of the custom `AdminSite` instance currently being used.
+
+2. **Primary Target File**: `django/contrib/admin/helpers.py`
+
+3. **Code Region**: The `get_admin_url` method within the `AdminReadonlyField` class (around line 206).
+
+4. **Logic Change**:
+    - Locate the `get_admin_url` method in `django/contrib/admin/helpers.py`.
+    - Find the line: `url = reverse(url_name, args=[quote(remote_obj.pk)])`
+    - Modify the `reverse` call to include the `current_app` keyword argument, sourcing the name from the `model_admin`'s `admin_site`.
+    - The updated line should be:
+      ```python
+      url = reverse(
+          url_name,
+          args=[quote(remote_obj.pk)],
+          current_app=self.model_admin.admin_site.name,
+      )
+      ```
+
+5. **Verification**:
+    - Run the validation commands defined in the VALIDATION PLAN to ensure the `current_app` is now correctly passed and that existing admin tests still pass.
+
+# VALIDATION PLAN
+
+- **Reproduction Check**: Run the reproduction script created during exploration to verify that `current_app` is now passed to the `reverse` function.
+  - `python3 reproduction_script.py`
+  - *Expected output*: `SUCCESS: current_app is custom-admin`
+
+- **Existing Admin Tests**: Run the Django admin suite to ensure no regressions in standard admin functionality.
+  - `python3 tests/runtests.py admin_views`
+  - `python3 tests/runtests.py admin_utils`
+
+- **Specific Helper Tests**: Run tests related to admin helpers if they exist.
+  - `python3 tests/runtests.py admin_scripts` (or any relevant test file identified in the repository structure for helpers).

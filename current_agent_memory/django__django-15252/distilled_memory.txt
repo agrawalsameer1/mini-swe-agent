@@ -1,0 +1,39 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/migrations/recorder.py**: The `MigrationRecorder` class is responsible for all interactions with the `django_migrations` table. It needs to consult the database router before performing operations on this table.
+- **django/db/migrations/executor.py**: The `MigrationExecutor` uses the recorder to track migration state. It also contains `should_skip_detecting_model`, which demonstrates how Django typically checks `allow_migrate` for specific models.
+- **tests/migrations/routers.py**: Contains `TestRouter`, which is used in existing Django tests. This router explicitly allows only the `tribble` model on the `other` database and returns `False` for all other models (including the `Migration` model) on that database. This is the primary source of regression when a naive `allow_migrate` check is added to the recorder.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism**: `MigrationRecorder` currently lacks any calls to `router.allow_migrate`. Consequently, it attempts to create and query the `django_migrations` table on every database connection involved in a migration, even if a router is configured to prevent migrations on specific databases.
+- **The "Catch-22" of the Migration Model**:
+    - If a router returns `False` for `allow_migrate(db, 'migrations', model_name='Migration')`, the recorder should ideally stay away from that database.
+    - However, some existing routers (like `TestRouter` in Django's tests) return `False` for the `Migration` model on a secondary database while returning `True` for other specific models (e.g., `tribble`).
+    - If the recorder obeys the `False` for `Migration` and skips recording, but the executor proceeds to migrate `tribble` (because the router allowed it), the migration state is never recorded. This causes subsequent migrations to fail with "table already exists" because Django thinks the migration hasn't been applied yet.
+- **Working Hypothesis**: The `MigrationRecorder` must respect the router, but the check should be applied carefully. If a router explicitly forbids the `Migration` model on a database, the recorder should skip operations. However, if the router is used in a way that allows some models but forbids the `Migration` model, it is technically a misconfiguration of the router for that database, yet one that Django's own tests currently rely on.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+- **Run Custom Router Test** (Verifies the fix for the reported issue):
+  ```bash
+  export PYTHONPATH=$PYTHONPATH:. && python3 tests/runtests.py migrations.test_recorder_router
+  ```
+- **Run Regression Test** (Verifies that existing router behavior isn't broken):
+  ```bash
+  export PYTHONPATH=$PYTHONPATH:. && python3 tests/runtests.py migrations.test_commands --parallel 1
+  ```
+- **Run All Migration Tests**:
+  ```bash
+  export PYTHONPATH=$PYTHONPATH:. && python3 tests/runtests.py migrations
+  ```
+
+# FAILED PATCH ATTEMPTS
+
+- **Attempt 1**: Added `if not router.allow_migrate(self.connection.alias, 'migrations', model_name='Migration'): return` to `ensure_schema`, `applied_migrations`, `record_applied`, and `record_unapplied`.
+  - **Result**: Passed the new `test_recorder_router.py` but failed `test_migrate_fake_initial` in `test_commands.py`.
+  - **Reason**: `TestRouter` in the Django test suite returns `False` for the `Migration` model on the `other` database but `True` for the `tribble` model. The patch caused the recorder to skip recording the migration of `tribble`, leading to "table already exists" errors on subsequent runs because the migration was applied but not recorded.
+  - **Lesson**: A simple boolean check on the `Migration` model is insufficient if the router is "model-selective" on a database. The fix needs to account for the fact that if any model is being migrated to a database, the `Migration` recorder must be allowed to function there, or the router must be configured to allow the `Migration` model whenever it allows other models.

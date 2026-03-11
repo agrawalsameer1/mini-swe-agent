@@ -1,0 +1,23 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `TypeError` occurs because `Q.__and__` (via `_combine`) strictly requires the other operand to be an instance of `Q`. While `Exists` (via `Combinable`) knows how to handle `Exists & Q`, `Q` does not know how to handle `Q & Exists`. Additionally, once `Q` is allowed to wrap an `Exists` object, `Q.deconstruct` fails because it assumes single-child `Q` objects are always key-value tuples.
+2. **Primary Target File**: `django/db/models/query_utils.py`
+3. **Modify `Q._combine`**:
+    - Location: `django/db/models/query_utils.py` inside the `Q` class.
+    - Change: Update the type check in `_combine` to allow objects with a `conditional=True` attribute (like `Exists`). If such an object is encountered and it is not already a `Q` instance, wrap it in `Q(other)`.
+    - Current logic: `if not isinstance(other, Q): raise TypeError(other)`
+    - New logic: Check if `other` is a `Q` instance. If not, check if `getattr(other, 'conditional', False)` is true. If it is, set `other = Q(other)`. Otherwise, raise the `TypeError`.
+4. **Modify `Q.deconstruct`**:
+    - Location: `django/db/models/query_utils.py` inside the `Q` class.
+    - Change: Update the logic that handles single-child `Q` objects to verify the child is a subscriptable tuple before attempting to use it as a keyword argument.
+    - Current logic: `if len(self.children) == 1: child = self.children[0]; kwargs = {child[0]: child[1]}`
+    - New logic: Add a check `and isinstance(self.children[0], tuple)` to the condition. If the child is not a tuple (e.g., it is an `Exists` object), it should be treated as a positional argument (`args`) rather than a keyword argument (`kwargs`).
+5. **Run Validation**: Execute the validation commands to ensure both the reported issue is fixed and no regressions were introduced in `Q` or `expressions`.
+
+# VALIDATION PLAN
+
+- `PYTHONPATH=. python reproduce_issue_v3.py` (This script verifies both the `&` operation and the `deconstruct()` call for both operand orders).
+- `PYTHONPATH=. python tests/runtests.py queries.test_q` (Verifies standard `Q` object behavior).
+- `PYTHONPATH=. python tests/runtests.py expressions.tests` (Verifies that expressions like `Exists` still work correctly and ensures no regressions in `RegisterLookupMixin` or related areas).

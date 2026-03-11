@@ -1,0 +1,61 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/models/sql/query.py**: Contains the core logic for managing deferred and immediate loading.
+    - `Query.deferred_loading`: A tuple `(frozenset(field_names), defer_bool)` where `defer_bool=True` means "exclude these fields" (`defer()`) and `defer_bool=False` means "only include these fields" (`only()`).
+    - `Query.add_deferred_loading(field_names)`: Handles logic for adding fields to the deferred set or removing them from the "only" set.
+    - `Query.add_immediate_loading(field_names)`: Handles logic for setting the "only" set.
+    - `Query.deferred_to_data(target, callback)`: **[Crucial Location]** Converts the `deferred_loading` state into the actual list of fields to be loaded.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug occurs because `Query.deferred_to_data` returns early if the set of field names is empty, regardless of whether the query is in "defer" mode or "only" mode.
+
+1. When `only("field")` is called, `deferred_loading` becomes `({"field"}, False)`.
+2. When `defer("field")` is subsequently called on that queryset, the field is removed from the "only" set, resulting in `(frozenset(), False)`.
+3. In `deferred_to_data`, the check `if not field_names: return` triggers because the set is empty.
+4. Because it returns early, no field restrictions are applied to the SQL compiler, causing Django to default to selecting **all** fields.
+5. **Hypothesis**: Changing the condition to `if not field_names and defer:` will allow "only" mode (where `defer=False`) to proceed even with an empty field set. This will lead to the `else` block where the primary key (and other mandatory fields) are correctly added to the selection, resulting in a query that selects only the ID.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+### Reproduction Script
+The following script confirms the bug by checking the generated SQL:
+```python
+import django
+from django.conf import settings
+from django.db import models
+
+if not settings.configured:
+    settings.configure(
+        DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}},
+        INSTALLED_APPS=[],
+    )
+    django.setup()
+
+class Company(models.Model):
+    name = models.CharField(max_length=100)
+    trade_number = models.CharField(max_length=100)
+    country = models.CharField(max_length=100)
+    class Meta:
+        app_label = 'reproduce_app'
+
+# Case 1: Should only select 'id'
+qs1 = Company.objects.only("name").defer("name")
+print(f"SQL 1: {qs1.query}")
+
+# Case 2: Should only select 'id'
+qs2 = Company.objects.only("name").defer("name").defer("country")
+print(f"SQL 2: {qs2.query}")
+```
+
+### Validation Tests
+Run existing Django tests for defer/only:
+- `python tests/runtests.py defer`
+- `python tests/runtests.py defer_regress`
+
+# FAILED PATCH ATTEMPTS
+
+*(No patch attempts have been made yet in this exploration phase.)*

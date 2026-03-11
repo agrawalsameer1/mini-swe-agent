@@ -1,0 +1,38 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/models/query.py**: Contains `QuerySet.delete()`. This is the primary entry point for deletions and the most logical place to normalize the output format. The method initializes a `Collector`, calls `collect()`, and then `delete()`.
+- **django/db/models/deletion.py**: Contains the `Collector` class. 
+    - The `delete()` method aggregates deletion counts into a `collections.Counter`.
+    - The "fast-delete" path (direct SQL) increments the counter with the query result (e.g., 0), creating the model key.
+    - The standard path (cascades/signals) returns early if no objects are found, leaving the counter empty.
+- **tests/delete/tests.py**: Contains `test_fast_delete_empty_no_update_can_self_select`, which confirms that Django's expected behavior for empty deletions is `(0, {'model_label': 0})`.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The inconsistency is caused by divergent logic in `Collector.delete()`:
+1. **Fast-Delete Path**: Executes a `DELETE` query. Even if 0 rows are affected, it performs `deleted_counter[qs.model._meta.label] += count`. Since `deleted_counter` is a `Counter`, this initializes the key with `0`.
+2. **Standard Path**: `Collector.collect()` performs a `SELECT`. If no objects are found, it returns early. `Collector.delete()` then has no items to iterate over, leaving the `deleted_counter` as an empty dictionary `{}`.
+
+**Working Hypothesis**: To ensure consistency, `QuerySet.delete()` should be modified to ensure the primary model's label is always present in the returned dictionary, even if the count is zero. This can be achieved by calling `_rows_count.setdefault(self.model._meta.label, 0)` before returning.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+```bash
+# Run the reproduction script to observe the current inconsistency
+# (Expected: AssertionError showing {} vs {'delete.User': 0})
+export PYTHONPATH=$PYTHONPATH:.
+python3 tests/runtests.py delete.reproduce_issue
+
+# Run existing deletion tests to ensure no regressions
+python3 tests/runtests.py delete
+```
+
+# FAILED PATCH ATTEMPTS
+
+- **Attempt 1 (Logic Change)**: Modified `django/db/models/deletion.py` to only update `deleted_counter` if `count > 0`.
+    - **Result**: Failed. Existing Django tests (e.g., `test_fast_delete_empty_no_update_can_self_select`) explicitly expect the `{'model_label': 0}` format for fast-path deletions.
+- **Attempt 2 (Syntax Error)**: Attempted to modify `django/db/models/query.py` but the patch was malformed. It inserted code outside of the function scope and corrupted the transition between `delete()` and `_raw_delete()`.
+    - **Lesson**: The file `django/db/models/query.py` currently contains corrupted lines (approx. 744-750) that must be cleaned up. The fix must be properly indented within the `QuerySet.delete` method body.

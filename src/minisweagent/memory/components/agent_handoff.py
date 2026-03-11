@@ -25,18 +25,13 @@ class AgentHandoff:
                 )
             else:
                 self.header = (
-                    "=== CURRENT OBJECTIVE ===\n"
-                    "Continue exploration based on the previous execution report.\n\n"
+                    "=== EXPLORATION HANDOFF ===\n\n"
                 )
 
-        elif phase == Phase.EXECUTION:
+        elif phase == Phase.VALIDATION:
             self.header = (
-                "=== CURRENT OBJECTIVE ===\n"
-                "Execute the patch plan identified during exploration and validate the fix.\n\n"
+                "=== EXECUTION REPORT ===\n\n"
             )
-
-        else:
-            raise ValueError(f"Unknown phase: {phase}")
 
         self.path.write_text(self.header)
 

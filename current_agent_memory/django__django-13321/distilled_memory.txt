@@ -1,0 +1,67 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **File:** `django/contrib/sessions/backends/base.py`
+- **Class:** `SessionBase`
+- **Method:** `_legacy_decode(self, session_data)`
+- **Logic:** The method performs `base64.b64decode(session_data.encode('ascii'))` before entering the `try...except` block that handles other decoding and validation errors.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The `SessionBase.decode` method attempts to use `signing.loads` (new-style signed sessions). If that fails, it falls back to `_legacy_decode`. 
+
+In `_legacy_decode`, the following line is executed outside of any error handling:
+```python
+encoded_data = base64.b64decode(session_data.encode('ascii'))
+```
+If `session_data` is not valid base64 (e.g., it's a corrupted new-style session string or arbitrary invalid data), `base64.b64decode` raises a `binascii.Error` (often reported as `Error: ...` or `Incorrect padding`). Because this call is outside the `try...except` block, the exception propagates and crashes the process instead of returning an empty session dictionary `{}` as intended for corrupted sessions.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+A simple reproduction script `reproduce_simple.py` was created:
+
+```python
+import base64
+import binascii
+from django.conf import settings
+if not settings.configured:
+    settings.configure(SECRET_KEY='secret')
+from django.contrib.sessions.backends.base import SessionBase
+
+class MockSession(SessionBase):
+    def load(self): return {}
+    def create(self): pass
+    def save(self, must_create=False): pass
+    def exists(self, session_key): return False
+    def delete(self, session_key=None): pass
+
+def test():
+    s = MockSession()
+    # This string is invalid base64 (length 13)
+    data = "invalid_base64"
+    print(f"Decoding: {data}")
+    try:
+        result = s.decode(data)
+        print(f"Result: {result}")
+    except Exception as e:
+        print(f"Crashed with: {type(e).__name__}: {e}")
+        exit(1)
+
+if __name__ == '__main__':
+    test()
+```
+
+**Execution Command:**
+`python3 reproduce_simple.py`
+
+**Expected Result (Fixed):**
+The script should print `Result: {}` and exit with code 0.
+
+**Actual Result (Buggy):**
+The script crashes with `binascii.Error` (or similar) and exits with code 1.
+
+# FAILED PATCH ATTEMPTS
+
+No patch attempts have been made yet. The exploration phase successfully identified the cause and verified it with a reproduction script.

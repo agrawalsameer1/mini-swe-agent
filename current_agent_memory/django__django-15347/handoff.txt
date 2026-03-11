@@ -1,0 +1,43 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `MessageEncoder` in `django/contrib/messages/storage/cookie.py` uses a truthiness check (`if obj.extra_tags:`) when serializing `Message` objects. This causes empty strings (`""`) to be omitted from the serialized data. During deserialization, the `Message` constructor defaults these missing values to `None`, leading to a type change from `str` to `NoneType`.
+2. **Primary Target File**: `django/contrib/messages/storage/cookie.py`
+3. **Specific Code Location**: Inside the `MessageEncoder.default` method (around line 23).
+4. **Logic Change**:
+    - Locate the line: `if obj.extra_tags:`
+    - Change it to: `if obj.extra_tags is not None:`
+    - This ensures that an empty string is treated as a valid value to be serialized, while only `None` is excluded.
+5. **Verification of Change**:
+    - Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Create a reproduction script named `reproduce_bug.py` with the following content:
+```python
+import django
+from django.conf import settings
+if not settings.configured:
+    settings.configure()
+django.setup()
+from django.contrib.messages.storage.base import Message
+from django.contrib.messages.storage.cookie import MessageEncoder, MessageDecoder
+
+original_message = Message(10, "Test message", extra_tags="")
+encoded = MessageEncoder().encode(original_message)
+decoded = MessageDecoder().decode(encoded)
+
+print(f"Original extra_tags: '{original_message.extra_tags}'")
+print(f"Decoded extra_tags: {decoded.extra_tags}")
+
+if decoded.extra_tags == "":
+    print("SUCCESS: extra_tags preserved")
+else:
+    print("FAILURE: extra_tags converted to None")
+    exit(1)
+```
+- Run the reproduction script:
+  `python3 reproduce_bug.py`
+- Run the existing messages framework tests to ensure no regressions:
+  `python3 tests/runtests.py messages_tests`

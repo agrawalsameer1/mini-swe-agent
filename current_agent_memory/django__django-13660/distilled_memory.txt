@@ -1,0 +1,57 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/core/management/commands/shell.py**: This file contains the `Command` class for the `shell` management command.
+    - **Method `handle`**: Specifically the block handling the `-c` / `--command` option:
+      ```python
+      if options['command']:
+          exec(options['command'])
+          return
+      ```
+    - **Method `python`**: Contains logic for the interactive Python shell, including how it sets up `imported_objects` and handles `PYTHONSTARTUP`.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug occurs because `exec(options['command'])` is called without providing an explicit globals/locals dictionary. In Python, when `exec` is called within a function without these arguments, it defaults to using the current local scope. 
+
+When a user provides a multi-line command that defines a variable and then a function using that variable:
+1. The variable is added to the local scope of the `handle` method.
+2. The function is defined.
+3. When the function is called, it looks for the variable in the global scope (which does not contain it) or its own closure (which it doesn't have for variables defined in the same `exec` call in this context).
+4. This results in a `NameError`.
+
+**Working Hypothesis**: Providing a dedicated dictionary to `exec` (e.g., `exec(options['command'], {})`) will treat the executed code as if it were running at the top level of a module, allowing functions to correctly access variables defined in the same block.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+### Reproduction Script
+Create a script `reproduce_bug.sh`:
+```bash
+cat <<EOF > reproduce_bug.sh
+python3 -m django shell -c "
+import django
+def f():
+    print(django.__version__)
+f()"
+EOF
+export DJANGO_SETTINGS_MODULE=tests.test_sqlite
+bash reproduce_bug.sh
+```
+
+### Dependencies
+The environment may require `asgiref` and `pytz` to run Django management commands:
+```bash
+pip install asgiref pytz
+```
+
+### Existing Tests
+To ensure no regressions in the shell command:
+```bash
+python3 ./tests/runtests.py shell
+```
+
+# FAILED PATCH ATTEMPTS
+
+No patch attempts have been made yet. The exploration phase successfully identified the cause and confirmed it with a reproduction script.

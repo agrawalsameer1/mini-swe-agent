@@ -1,0 +1,35 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: `FilePathField` (both in `django.db.models` and `django.forms`) expects the `path` argument to be a string-like object. When a callable is provided, it fails during form field initialization because it attempts to perform directory operations (like `os.scandir` or `os.walk`) on the function object itself rather than its return value.
+
+2. **Primary Target Files**:
+    - `django/db/models/fields/__init__.py`: The model field definition.
+    - `django/forms/fields.py`: The form field definition where the path is actually used to generate choices.
+
+3. **Modify `django/forms/fields.py`**:
+    - Locate the `FilePathField.__init__` method (around line 1078).
+    - At the beginning of the `__init__` method, check if `self.path` is callable.
+    - If it is callable, resolve it by calling it: `self.path = self.path()`.
+    - This ensures that when the code later calls `os.walk(self.path)` or `os.scandir(self.path)`, it uses the resolved string path.
+
+4. **Modify `django/db/models/fields/__init__.py`**:
+    - Locate the `FilePathField.formfield` method (around line 1711).
+    - Update the dictionary passed to `super().formfield` to resolve `self.path` if it is callable.
+    - Change `'path': self.path` to `'path': self.path() if callable(self.path) else self.path`.
+    - This ensures the form field receives a resolved path, while the model field's `deconstruct` method (already implemented) continues to return the callable itself for migration purposes.
+
+5. **Run Validation**:
+    - Execute the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Run the reproduction script created during exploration to verify the fix for both model and form fields:
+  `python3 reproduction.py`
+- Run existing form field tests for `FilePathField`:
+  `python3 tests/runtests.py forms_tests.field_tests.test_filepathfield`
+- Run existing model field tests to ensure no regressions:
+  `python3 tests/runtests.py model_fields.test_promises`
+- Run migration deconstruction tests to ensure the callable is preserved in migrations:
+  `python3 tests/runtests.py field_deconstruction.tests`

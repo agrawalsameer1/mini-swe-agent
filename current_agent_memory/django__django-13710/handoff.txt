@@ -1,0 +1,43 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: In `django.contrib.admin.options.InlineModelAdmin`, the `__init__` method incorrectly falls back to the underlying model's `verbose_name_plural` even when a custom `verbose_name` has been specified for the Inline. It should instead derive the plural name from the Inline's custom `verbose_name` if provided, matching the behavior of Django Models.
+2. **Primary Target File**: `django/contrib/admin/options.py`
+3. **Target Class**: `InlineModelAdmin`
+4. **Logic Change**:
+    - Locate the `__init__` method of `InlineModelAdmin` (around line 2034).
+    - Currently, it sets `self.verbose_name` and `self.verbose_name_plural` independently from the model's `_meta` if they are `None`.
+    - Change the logic to:
+        1. Check if `self.verbose_name` is `None`. If so, initialize it from `self.model._meta.verbose_name`.
+        2. Check if `self.verbose_name_plural` is `None`.
+        3. If `self.verbose_name_plural` is `None`, check if `self.verbose_name` was *already* set on the class (i.e., it wasn't `None` before step 1).
+        4. If a custom `verbose_name` was provided but no `verbose_name_plural`, derive the plural by appending 's' (using `format_lazy` for translation safety, similar to `django/db/models/options.py`).
+        5. Otherwise, fall back to `self.model._meta.verbose_name_plural`.
+5. **Implementation Details**:
+    - Ensure `format_lazy` is imported from `django.utils.text`.
+    - Update `InlineModelAdmin.__init__` as follows:
+    ```python
+    if self.verbose_name is None:
+        self.verbose_name = self.model._meta.verbose_name
+    if self.verbose_name_plural is None:
+        if (
+            self.__class__.verbose_name is not None and
+            self.__class__.verbose_name_plural is None
+        ):
+            from django.utils.text import format_lazy
+            self.verbose_name_plural = format_lazy('{}s', self.verbose_name)
+        else:
+            self.verbose_name_plural = self.model._meta.verbose_name_plural
+    ```
+6. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Run the reproduction script created during exploration:
+  `python3 reproduce_issue.py`
+  (This script verifies that if `verbose_name` is 'Custom Name', `verbose_name_plural` becomes 'Custom Names' instead of the model's default).
+- Run existing admin inline tests to ensure no regressions:
+  `python3 tests/runtests.py admin_inlines`
+- Run general admin tests to ensure overall stability:
+  `python3 tests/runtests.py admin_views`

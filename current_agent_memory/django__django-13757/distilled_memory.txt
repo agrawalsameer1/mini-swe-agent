@@ -1,0 +1,39 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/models/fields/json.py**: Contains the `KeyTransformIsNull` class which handles the `__isnull` lookup for JSON fields.
+- **tests/model_fields/test_jsonfield.py**: Contains the test suite for JSON field querying, specifically `test_isnull_key` and `test_isnull_key_or_none`.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug occurs because `KeyTransformIsNull` on SQLite and Oracle falls back to the default `IsNull` implementation when `isnull=True`. 
+
+- **Mechanism**: The default `IsNull` implementation generates `LHS IS NULL`. For a `KeyTransform`, the LHS is typically a `JSON_EXTRACT` call. 
+- **SQLite Specifics**: In SQLite, `JSON_EXTRACT(data, '$.key')` returns `NULL` both when the key is missing and when the key exists but its value is JSON `null`. Consequently, `filter(key__isnull=True)` incorrectly matches records where the key exists with a null value.
+- **Oracle Specifics**: Similar behavior occurs on Oracle where the default null check does not distinguish between a missing key and a JSON null value.
+- **Correct Behavior**: To correctly identify a missing key (as opposed to a null value), the query should use `JSON_TYPE(...) IS NULL` on SQLite and `NOT JSON_EXISTS(...)` on Oracle.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+To reproduce the bug, modify `tests/model_fields/test_jsonfield.py` to check for a key that exists with a null value:
+
+```python
+# In tests/model_fields/test_jsonfield.py, modify test_isnull_key:
+self.assertSequenceEqual(
+    NullableJSONModel.objects.filter(value__j__isnull=True),
+    self.objs[:4] + self.objs[5:],
+)
+```
+
+Run the test using:
+```bash
+export PYTHONPATH=$PYTHONPATH:.
+python3 tests/runtests.py model_fields.test_jsonfield.TestQuerying.test_isnull_key
+```
+
+# FAILED PATCH ATTEMPTS
+
+- **Standalone Script (reproduce_bug.py)**: Multiple attempts to create a standalone reproduction script failed due to Django's complex app registry and model loading requirements (e.g., `AppRegistryNotReady`, `ImproperlyConfigured` for missing filesystem locations). 
+- **Lesson Learned**: For Django core bugs, it is significantly more efficient to modify and run the existing internal test suite (`tests/runtests.py`) rather than attempting to bootstrap a minimal Django environment from scratch.

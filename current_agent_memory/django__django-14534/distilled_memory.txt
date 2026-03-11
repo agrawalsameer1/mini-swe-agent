@@ -1,0 +1,30 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/forms/boundfield.py**:
+    - `BoundWidget` class (lines 247-285): Contains the `id_for_label` property.
+    - `BoundWidget.id_for_label` (line 279): Currently implemented as `return self.data["attrs"]["id"]`, which causes a `KeyError` when the ID is missing from the widget's attributes.
+    - `BoundField.subwidgets` (lines 37-50): Responsible for instantiating `BoundWidget` objects.
+- **tests/forms_tests/tests/test_forms.py**:
+    - `test_iterable_boundfield_select`: Specifically fails when `auto_id=False` is used, as the `id` key is missing from `self.data['attrs']`.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism**: The current implementation of `BoundWidget.id_for_label` assumes that an `'id'` key always exists in `self.data['attrs']`. However, when a form is initialized with `auto_id=False`, or for certain widget types like `Select` in specific iterations, this key is absent, leading to a `KeyError`.
+- **Hypothesis**: `BoundWidget.id_for_label` must be updated to safely check for the existence of the `'id'` key. If present, it should be used (to respect custom IDs and `auto_id` settings); if absent, it should fall back to the legacy generation logic: `'id_%s_%s' % (self.data['name'], self.data['index'])`. This ensures both correctness for custom IDs and backward compatibility for cases where no ID is explicitly provided.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+- **Reproduction Script**: `reproduce_issue.py` (demonstrates that `custom_id` is currently respected but might fail if the attribute is missing).
+- **Validation Command**: `PYTHONPATH=. python3 tests/runtests.py forms_tests.tests.test_forms.FormsTestCase.test_iterable_boundfield_select --parallel=1`
+    - This command confirms the `KeyError: 'id'` in the current environment.
+- **Full Suite Validation**: `PYTHONPATH=. python3 tests/runtests.py forms_tests --parallel=1`
+
+# FAILED PATCH ATTEMPTS
+
+- **Attempt 1**: Changed `id_for_label` to return `self.data["attrs"]["id"]`.
+    - **Result**: Caused `KeyError: 'id'` in `test_iterable_boundfield_select`.
+    - **Lesson**: `self.data['attrs']` is not guaranteed to contain an `'id'`. A fallback mechanism is mandatory.
+- **Note on Environment**: Previous reports mentioned a `ValueError` in `test_validators.py` related to IPv6; this is confirmed to be an environmental issue unrelated to the `BoundWidget` logic.

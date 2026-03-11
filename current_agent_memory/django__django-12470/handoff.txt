@@ -1,0 +1,29 @@
+=== EXECUTION REPORT ===
+
+# Latest Failed Patch
+
+```python
+diff --git a/django/db/models/sql/compiler.py b/django/db/models/sql/compiler.py
+index 92213a4e67..b2162c79c8 100644
+--- a/django/db/models/sql/compiler.py
++++ b/django/db/models/sql/compiler.py
+@@ -726,8 +726,11 @@ class SQLCompiler:
+                 if isinstance(item, OrderBy):
+                     results.append((item, False))
+                     continue
+-                results.extend(self.find_ordering_name(item, opts, alias,
+-                                                       order, already_seen))
++                rel_results = self.find_ordering_name(item, opts, alias, "ASC", already_seen)
++                if descending:
++                    for expr, is_ref in rel_results:
++                        expr.reverse_ordering()
++                results.extend(rel_results)
+             return results
+         targets, alias, _ = self.query.trim_joins(targets, joins, path)
+         return [(OrderBy(transform_function(t, alias), descending=descending), False) for t in targets]
+```
+
+# Failed Validation Commands
+
+- **python3 run_repro.py**
+The command failed to produce the expected `DESC` ordering. The output still contained `ORDER BY "repro_app_parent"."id" ASC`, indicating the patch did not resolve the incorrect direction flipping during recursive resolution of inherited model ordering.

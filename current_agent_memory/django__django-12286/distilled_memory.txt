@@ -1,0 +1,55 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **`django/core/checks/translation.py`**: Contains the system check `check_language_settings_consistent` which incorrectly raises `translation.E004` when a sublanguage (e.g., `de-at`) is used but only the base language (e.g., `de`) is defined in `LANGUAGES`.
+- **`django/utils/translation/trans_real.py`**: Contains `get_supported_language_variant(lang_code, strict=False)`, which implements the correct logic for language fallback (e.g., checking if a base language or a different country-specific variant is supported).
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug is caused by a naive set membership check in `check_language_settings_consistent`:
+```python
+available_tags = {i for i, _ in settings.LANGUAGES} | {'en-us'}
+if settings.LANGUAGE_CODE not in available_tags:
+    return [E004]
+```
+This logic requires an exact match for `LANGUAGE_CODE` within the `LANGUAGES` setting (or `en-us`). It does not account for Django's standard translation fallback behavior, where a specific variant like `de-at` should be considered valid if the generic `de` is available.
+
+**Working Hypothesis**: Replacing the manual set check with a call to `django.utils.translation.get_supported_language_variant(settings.LANGUAGE_CODE)` will align the system check with Django's actual runtime translation behavior. If this function raises a `LookupError`, then and only then should `translation.E004` be returned.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+### Reproduction Script (`reproduce_issue.py`)
+```python
+import os
+import django
+from django.conf import settings
+from django.core.checks.translation import check_language_settings_consistent
+
+if not settings.configured:
+    settings.configure(
+        LANGUAGE_CODE='de-at',
+        LANGUAGES=[('de', 'German')],
+        INSTALLED_APPS=[],
+    )
+    django.setup()
+
+errors = check_language_settings_consistent(None)
+for error in errors:
+    print(f"{error.id}: {error.msg}")
+
+if any(error.id == 'translation.E004' for error in errors):
+    print("FAILURE: translation.E004 raised")
+else:
+    print("SUCCESS: translation.E004 not raised")
+```
+
+### Validation Commands
+- **Run reproduction**: `python3 reproduce_issue.py`
+- **Run existing tests**: `python3 tests/runtests.py check_framework.test_translation`
+- **Dependencies**: Requires `asgiref` and `pytz` to be installed in the environment to run Django setup.
+
+# FAILED PATCH ATTEMPTS
+
+No patch attempts have been made yet. The exploration phase concluded after confirming the bug mechanism and identifying the correct utility function (`get_supported_language_variant`) to resolve it.

@@ -35,7 +35,8 @@ MAXTOKENS = 4096
 class AgentConfig(BaseModel):
     """Check the config files in minisweagent/config for example settings."""
 
-    distilled_memory_write_template: str
+    distilled_memory_update_after_exploration_template: str
+    distilled_memory_update_after_validation_template: str
     exploration_handoff_write_template: str
     execution_report_write_template: str
     exploration_scratchpad_write_template: str
@@ -59,6 +60,9 @@ class AgentConfig(BaseModel):
     """System template used during execution phase."""
     execution_instance_template: str
     """User/task template used during execution phase."""
+
+    validation_system_template: str
+    validation_instance_template: str
     
     system_template: str
     """Template for the system message (the first message)."""
@@ -73,7 +77,7 @@ class AgentConfig(BaseModel):
     steps: int = 0
 
 class DefaultAgent:
-    def __init__(self, model: Model, env: Environment, *, config_class: type = AgentConfig, **kwargs):
+    def __init__(self, model: Model, env: Environment, *, config_class: type = AgentConfig, instance_id: str = "", **kwargs):
         """See the `AgentConfig` class for permitted keyword arguments."""
         self.config = config_class(**kwargs)
         self.messages: list[dict] = []
@@ -87,7 +91,7 @@ class DefaultAgent:
 
         self.phase = Phase.EXPLORATION
 
-        self.task_id = uuid.uuid4().hex[:8]
+        self.task_id = instance_id
         self.memory_dir = Path("current_agent_memory") / str(self.task_id)
         self.memory_dir.mkdir(parents=True, exist_ok=True)
 
@@ -103,6 +107,15 @@ class DefaultAgent:
         # self.scratchpad.reset(self.phase)
         self.phase_start_idx = 2
         self.min_exploration_messages = 10
+
+        # Prompt token stats for the final prompt built by _refresh_phase_prompts()
+        self.prompt_token_total = 0
+        self.prompt_token_count = 0
+        self.prompt_token_max = 0
+
+        # Phase-length stats
+        self.phase_lengths: list[int] = []
+        self.current_phase_step_count = 0
 
     def get_template_vars(self, **kwargs) -> dict:
         return recursive_merge(
@@ -164,6 +177,7 @@ class DefaultAgent:
             finally:
                 self.save(self.config.output_path)
             if self.messages[-1].get("role") == "exit":
+                self._write_prompt_token_stats()
                 print("Final token count: " + str(litellm.token_counter(model=self.model.config.model_name, messages=self.messages)))
                 break
 
@@ -202,7 +216,7 @@ class DefaultAgent:
 
         if transcript:
             current_phase_messages = (
-                "=== CURRENT PHASE CONTEXT ===\n"
+                "=== CURRENT PHASE MESSAGES ===\n"
                 "These messages contain the transcript of the current phase, including your previous actions, command outputs, and reasoning.\n"
                 "Use this information to decide whether to continue the phase or switch phases.\n\n"
                 f"{transcript}"
@@ -216,6 +230,65 @@ class DefaultAgent:
             )
 
         return prompt_messages
+    
+    def _record_prompt_token_stats(self, prompt_messages: list[dict]) -> int:
+        """
+        Count tokens for the final prompt built by _refresh_phase_prompts(),
+        then update running average/max stats.
+        """
+        prompt_tokens = litellm.token_counter(
+            model=self.model.config.model_name,
+            messages=prompt_messages,
+        )
+        self.prompt_token_total += prompt_tokens
+        self.prompt_token_count += 1
+        self.prompt_token_max = max(self.prompt_token_max, prompt_tokens)
+        return prompt_tokens
+
+    def _write_prompt_token_stats(self) -> None:
+        """
+        Write average and maximum final-prompt token counts to:
+        token_stats / task_id
+        """
+        stats_dir = Path("token_stats")
+        stats_dir.mkdir(parents=True, exist_ok=True)
+
+        stats_path = stats_dir / str(self.task_id)
+
+        # Make sure the final active phase segment is included.
+        self._finalize_current_phase_length()
+
+        avg_tokens = (
+            self.prompt_token_total / self.prompt_token_count
+            if self.prompt_token_count > 0
+            else 0.0
+        )
+
+        avg_phase_length = (
+            sum(self.phase_lengths) / len(self.phase_lengths)
+            if self.phase_lengths
+            else 0.0
+        )
+
+        payload = {
+            "task_id": self.task_id,
+            "final_step_count": self.n_calls,
+            "num_prompts": self.prompt_token_count,
+            "average_final_prompt_tokens": avg_tokens,
+            "max_final_prompt_tokens": self.prompt_token_max,
+            "average_phase_length": avg_phase_length,
+            "phase_lengths": self.phase_lengths,
+        }
+
+        stats_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def _finalize_current_phase_length(self) -> None:
+        """
+        Save the length of the current contiguous phase segment, if non-empty.
+        """
+        if self.current_phase_step_count > 0:
+            self.phase_lengths.append(self.current_phase_step_count)
+            self.current_phase_step_count = 0
 
     def query(self) -> dict:
         """Query the model and return the model message."""
@@ -229,6 +302,7 @@ class DefaultAgent:
             )
 
         query_messages = self._refresh_phase_prompts()
+        prompt_tokens = self._record_prompt_token_stats(query_messages)
         next_step_index = self.n_calls + 1
 
         logs_dir = Path("logs") / str(self.task_id)
@@ -245,6 +319,7 @@ class DefaultAgent:
         with log_path.open("w", encoding="utf-8") as f:
             f.write(f"STEP: {next_step_index}\n")
             f.write(f"PHASE: {self.phase.value}\n")
+            f.write(f"FINAL PROMPT TOKENS: {prompt_tokens}\n")
             f.write("=" * 80 + "\n")
             f.write("FINAL BUILT PROMPT\n")
             f.write("=" * 80 + "\n\n")
@@ -278,6 +353,7 @@ class DefaultAgent:
                 f.write("\n" + "-" * 80 + "\n\n")
 
         self.n_calls += 1
+        self.current_phase_step_count += 1
         print("[DEBUG] wrote prompt to log in query(), now calling self.model.query")
         message = self.model.query(query_messages)
         print("[DEBUG] self.model.query finished running")
@@ -306,6 +382,11 @@ class DefaultAgent:
             return (
                 self.config.execution_system_template,
                 self.config.execution_instance_template,
+            )
+        if self.phase == Phase.VALIDATION:
+            return (
+                self.config.validation_system_template,
+                self.config.validation_instance_template,
             )
         raise ValueError(f"Unknown phase: {self.phase}")
 
@@ -355,24 +436,24 @@ class DefaultAgent:
                 },
             }
         
-        # Update distilled task memory using the phase we are leaving.
         previous_distilled_memory = self.distilled_memory.read().strip()
-        new_distilled_memory = self.create_distilled_memory(previous_distilled_memory)
+        # Update distilled task memory using the phase we are leaving.
+        if self.phase == Phase.EXPLORATION or self.phase == Phase.VALIDATION:
+            new_distilled_memory = self.create_distilled_memory(previous_distilled_memory)
+            self.distilled_memory.reset()
+            self.distilled_memory.write(new_distilled_memory)
 
         # Generate the outgoing handoff/report from the phase we are leaving.
         if old_phase == Phase.EXPLORATION and new_phase == Phase.EXECUTION:
             handoff_text = self.create_exploration_handoff(previous_distilled_memory)
-        elif old_phase == Phase.EXECUTION and new_phase == Phase.EXPLORATION:
+            self.handoff.reset(old_phase)
+            self.handoff.write(handoff_text)
+        if old_phase == Phase.VALIDATION and new_phase == Phase.EXPLORATION:
             handoff_text = self.create_execution_report(previous_distilled_memory)
-        else:
-            raise ValueError(f"Unsupported phase switch: {old_phase} -> {new_phase}")
+            self.handoff.reset(old_phase)
+            self.handoff.write(handoff_text)
 
-        # Write memory artifacts before entering the new phase.
-        self.handoff.reset(new_phase)
-        self.handoff.write(handoff_text)
-
-        self.distilled_memory.reset()
-        self.distilled_memory.write(new_distilled_memory)
+        self._finalize_current_phase_length()
 
         # Enter the new phase with a fresh scratchpad.
         self.phase = new_phase
@@ -567,7 +648,7 @@ class DefaultAgent:
 
     def create_execution_report(self, previous_memory: str) -> str:
         """
-        Generate the execution -> exploration report from the current execution phase.
+        Generate the validation -> exploration report from the current validation phase.
         """
         transcript = self._build_transcript(start_idx=self.phase_start_idx)
 
@@ -590,11 +671,19 @@ class DefaultAgent:
 
         required_headers = []
 
+        if self.phase == Phase.EXPLORATION:
+            distilled_memory_write_template = self.config.distilled_memory_update_after_exploration_template
+        elif self.phase == Phase.VALIDATION:
+            distilled_memory_write_template = self.config.distilled_memory_update_after_validation_template
+        else:
+            raise ValueError(f"Invalid phase: {self.phase}")
+
         return self._generate_memory_block(
-            self.config.distilled_memory_write_template,
+            distilled_memory_write_template,
             required_headers=required_headers,
-            existing_memory=previous_memory,
+            distilled_memory=previous_memory,
             transcript=transcript,
+            handoff=self.handoff
         )
 
 

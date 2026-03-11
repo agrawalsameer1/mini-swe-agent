@@ -1,0 +1,31 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `RenameModel` operation in Django migrations triggers database-level changes (like dropping/recreating foreign keys or tables) even when the model's underlying `db_table` remains unchanged. This happens because the operation does not check if the table name is identical before proceeding with `alter_db_table` and `alter_field` calls.
+2. **Primary Target**: `django/db/migrations/operations/models.py`, specifically the `RenameModel.database_forwards` method.
+3. **Logic Change**:
+    - In `RenameModel.database_forwards`, after retrieving `new_model` and `old_model`, compare their `_meta.db_table` attributes.
+    - If `old_model._meta.db_table == new_model._meta.db_table`, the operation should be a no-op at the database level.
+    - Return early from the method if they are equal to skip unnecessary `alter_db_table` and `alter_field` calls.
+4. **Implementation Details**:
+    - Open `django/db/migrations/operations/models.py`.
+    - Locate `class RenameModel`.
+    - In `database_forwards(self, app_label, schema_editor, from_state, to_state)`:
+        - After `old_model = from_state.apps.get_model(app_label, self.old_name)`, add:
+          ```python
+          if old_model._meta.db_table == new_model._meta.db_table:
+              return
+          ```
+5. **Verification**:
+    - Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- **Reproduction Check**: Run the reproduction script created during exploration to ensure no SQL is executed when `db_table` is fixed.
+  - `python3 reproduce_issue.py`
+  - *Expected output*: "No SQL executed (noop)."
+- **Regression Check**: Run existing migration operation tests to ensure standard model renames (where `db_table` *does* change) still work correctly.
+  - `python3 tests/runtests.py migrations.test_operations`
+- **Specific Test Case**: Run the `RenameModel` tests specifically.
+  - `python3 tests/runtests.py migrations.test_operations --filter=test_rename_model` (or similar filter if available in the test runner).

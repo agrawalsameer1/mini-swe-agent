@@ -1,0 +1,78 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- `astropy/modeling/separable.py`: Contains the core logic for calculating the separability matrix of compound models.
+- `astropy/modeling/separable.py:_cstack`: This function handles the `&` (cstack) operator. It is responsible for combining the coordinate matrices of two models being joined horizontally.
+- `astropy/modeling/separable.py:_separable`: The recursive function that traverses the expression tree of a `CompoundModel`.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug occurs when `&` operators are nested, such as in `model1 & (model2 & model3)`. 
+
+In `_cstack(left, right)`, if `right` is already a `CompoundModel`, `_separable(transform.right)` is called first, returning a `numpy.ndarray` (the coordinate matrix) instead of a `Model` object.
+
+The current implementation of `_cstack` handles the `right` operand as follows:
+```python
+    if isinstance(right, Model):
+        cright = _coord_matrix(right, 'right', noutp)
+    else:
+        cright = np.zeros((noutp, right.shape[1]))
+        cright[-right.shape[0]:, -right.shape[1]:] = 1  # <--- BUG HERE
+```
+When `right` is an `ndarray`, it creates a zero matrix of the correct shape but then fills the relevant sub-block with `1`s (representing full dependence) instead of assigning the actual values from the `right` matrix. This causes the resulting separability matrix to incorrectly indicate that all outputs of the right-hand sub-model depend on all its inputs.
+
+The `left` operand is handled correctly:
+```python
+    if isinstance(left, Model):
+        cleft = _coord_matrix(left, 'left', noutp)
+    else:
+        cleft = np.zeros((noutp, left.shape[1]))
+        cleft[: left.shape[0], : left.shape[1]] = left # <--- CORRECT
+```
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+### Reproduction Script (`reproduce_bug.py`)
+```python
+from astropy.modeling import models as m
+from astropy.modeling.separable import separability_matrix
+import numpy as np
+
+# Case 1: Simple concatenation (Works)
+cm = m.Linear1D(10) & m.Linear1D(5)
+print("Separability matrix of cm (Linear1D & Linear1D):")
+print(separability_matrix(cm))
+
+# Case 2: Nested concatenation (Fails)
+# The bug triggers because 'cm' is passed as the 'right' operand to '&'
+nested_model = m.Pix2Sky_TAN() & cm
+print("\nSeparability matrix of m.Pix2Sky_TAN() & cm:")
+res = separability_matrix(nested_model)
+print(res)
+
+expected = np.array([
+    [ True,  True, False, False],
+    [ True,  True, False, False],
+    [False, False,  True, False],
+    [False, False, False,  True]
+])
+
+if np.array_equal(res, expected):
+    print("\nSUCCESS: Result matches expected.")
+else:
+    print("\nFAILURE: Result does not match expected.")
+    print("Expected:")
+    print(expected)
+```
+
+### Environment Setup
+Note: The environment may require specific versions of dependencies to run `astropy` from source:
+- `pip install pyerfa`
+- `pip install "numpy<2.0"` (to avoid `AttributeError: module 'numpy' has no attribute 'product'`)
+- `python setup.py build_ext --inplace` (required to import `astropy` from source)
+
+# FAILED PATCH ATTEMPTS
+
+(No patch attempts have been made yet in this session.)

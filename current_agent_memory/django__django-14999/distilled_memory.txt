@@ -1,0 +1,27 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/migrations/operations/models.py**: Contains the `RenameModel` class. The `database_forwards` method (starting around line 328) is where the unnecessary database operations are triggered.
+- **django/db/backends/base/schema.py**: Contains `alter_db_table`, which already has a no-op check for identical table names, but `RenameModel` bypasses the benefit of this by proceeding to call `alter_field` on related models.
+- **tests/migrations/test_operations.py**: Contains existing tests for `RenameModel` that should be used for regression testing.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism**: When `RenameModel` is executed, it calls `schema_editor.alter_db_table` for the model being renamed and `schema_editor.alter_field` for all models with foreign keys pointing to it. 
+- **Issue**: Even if the model has an explicit `db_table` set in its `Meta` class (meaning the underlying database table name does not change during the rename), Django still proceeds with these calls.
+- **Consequence**: On backends like SQLite, `alter_field` triggers a full table recreation for related models to update foreign key metadata. On Postgres, it can lead to dropping and recreating foreign key constraints. This is unnecessary and potentially slow/dangerous for large tables when the actual database schema hasn't changed.
+- **Hypothesis**: Adding a check in `RenameModel.database_forwards` to compare `old_model._meta.db_table` and `new_model._meta.db_table` will allow the operation to return early if they are identical, making the operation a no-op as intended when `db_table` is fixed.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+- **Reproduction Script**: A standalone script `reproduce_issue.py` was created. It sets up a model with a custom `db_table` and a related model with a foreign key, then executes `RenameModel`.
+- **Execution**: `python3 reproduce_issue.py`
+- **Expected Result (Buggy)**: SQL output showing `CREATE TABLE "new__..."`, `INSERT INTO`, and `DROP TABLE` for the related model.
+- **Expected Result (Fixed)**: Output indicating "No SQL executed (noop)."
+- **Regression Testing**: `python3 tests/runtests.py migrations.test_operations`
+
+# FAILED PATCH ATTEMPTS
+
+- No patch attempts have been made yet. The exploration phase successfully identified the cause and verified it with a reproduction script.

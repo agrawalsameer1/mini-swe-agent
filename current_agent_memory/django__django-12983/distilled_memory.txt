@@ -1,0 +1,52 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/utils/text.py**: Contains the `slugify` function.
+    - The `slugify` function (lines 393-406) currently handles Unicode normalization, character filtering (keeping alphanumerics, underscores, and hyphens), and space-to-hyphen conversion.
+    - Current logic:
+      ```python
+      value = re.sub(r'[^\w\s-]', '', value.lower()).strip()
+      return re.sub(r'[-\s]+', '-', value)
+      ```
+    - The `.strip()` call only removes whitespace, leaving leading/trailing underscores and hyphens intact if they were present in the input or resulted from the regex substitutions.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism**: The `slugify` function is intended to create clean URL-friendly strings. While it converts spaces to hyphens and removes non-slug characters, it fails to strip leading and trailing hyphens and underscores.
+- **Example**: Input `___This is a test ---` results in `___this-is-a-test-` because:
+    1. `value.lower()` makes it lowercase.
+    2. `re.sub(r'[^\w\s-]', '', ...)` keeps underscores and hyphens.
+    3. `.strip()` only removes whitespace.
+    4. `re.sub(r'[-\s]+', '-', value)` collapses spaces and hyphens into a single hyphen but does not touch leading/trailing underscores or the resulting trailing hyphen.
+- **Hypothesis**: Adding `.strip('-_')` to the final result will correctly remove these leading and trailing characters as requested.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+- **Reproduction Script**: `reproduce_issue.py`
+  ```python
+  import os
+  import sys
+  # Add the current directory to sys.path to ensure we can import django
+  sys.path.insert(0, os.path.abspath("."))
+  from django.utils import text
+
+  input_str = "___This is a test ---"
+  output = text.slugify(input_str)
+  print(f"Input:  {input_str}")
+  print(f"Output: {output}")
+
+  expected_output = "this-is-a-test"
+  if output == expected_output:
+      print("SUCCESS: Output matches expected output.")
+  else:
+      print(f"FAILURE: Output does not match expected output. Expected: {expected_output}")
+      sys.exit(1)
+  ```
+- **Execution**: `python3 reproduce_issue.py`
+- **Django Tests**: `python3 tests/runtests.py utils_tests.test_text` (Note: requires `asgiref` and `pytz` to be installed in the environment).
+
+# FAILED PATCH ATTEMPTS
+
+- No patch attempts have been made yet. The exploration phase successfully reproduced the issue and identified the likely fix location.

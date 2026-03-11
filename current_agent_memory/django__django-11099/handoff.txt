@@ -1,0 +1,36 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `ASCIIUsernameValidator` and `UnicodeUsernameValidator` use the `$` anchor in their regular expressions. In Python's `re` module, `$` matches either the end of the string or a position just before a newline at the end of the string. This allows usernames to incorrectly pass validation if they contain a trailing newline. Using `\A` and `\Z` instead of `^` and `$` ensures the match covers the absolute start and end of the string.
+2. **Target File**: `django/contrib/auth/validators.py`
+3. **Modify `ASCIIUsernameValidator`**:
+    - Locate the `ASCIIUsernameValidator` class.
+    - Change `regex = r'^[\w.@+-]+$'` to `regex = r'\A[\w.@+-]+\Z'`.
+4. **Modify `UnicodeUsernameValidator`**:
+    - Locate the `UnicodeUsernameValidator` class.
+    - Change `regex = r'^[\w.@+-]+$'` to `regex = r'\A[\w.@+-]+\Z'`.
+5. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Create and run a standalone regex verification script to ensure the new anchors reject trailing newlines:
+```python
+import re
+def test_regex(regex, flags, name):
+    # \A and \Z should NOT match "user\n"
+    match = re.search(regex, "user\n", flags)
+    if match:
+        print(f"{name}: FAIL - still accepted 'user\\n'")
+    else:
+        print(f"{name}: PASS - rejected 'user\\n'")
+
+ASCII_REGEX = r'\A[\w.@+-]+\Z'
+UNICODE_REGEX = r'\A[\w.@+-]+\Z'
+test_regex(ASCII_REGEX, re.ASCII, "ASCIIUsernameValidator")
+test_regex(UNICODE_REGEX, 0, "UnicodeUsernameValidator")
+```
+- Run the existing Django validation tests to ensure no regressions:
+`python3 tests/runtests.py auth_tests.test_validators`
+- Run the existing general validator tests:
+`python3 tests/runtests.py validation.test_validators`

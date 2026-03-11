@@ -1,9 +1,0 @@
-=== CURRENT OBJECTIVE ===
-Execute the patch plan identified during exploration and validate the fix.
-
-1. The bug hypothesis is that the parser's `check_still_complete` function in `src/sqlfluff/core/parser/helpers.py` triggers a `RuntimeError` because the grammar for `FileSegment` or `StatementSegment` in `src/sqlfluff/dialects/dialect_ansi.py` fails to account for consecutive semicolons (empty statements), causing them to be dropped from the `MatchResult`.
-2. Open `src/sqlfluff/dialects/dialect_ansi.py` and locate the `FileSegment` definition (around line 489) and the `StatementSegment` definition.
-3. Modify the `parse_grammar` of `FileSegment` to use a `Delimited` or `Sequence` grammar that explicitly allows for optional or multiple `SemicolonSegment` instances between statements, or ensure that `StatementSegment` can match an empty string followed by a semicolon.
-4. Alternatively, if the issue is in the `Sequence` grammar's handling of unmatched trailing segments, modify `src/sqlfluff/core/parser/grammar/sequence.py` to ensure all segments are preserved in the `MatchResult`.
-5. Validate the fix by running: `export PYTHONPATH=$PYTHONPATH:$(pwd)/src && echo "select id from tbl;;" | python3 -m sqlfluff lint -`
-6. If the command succeeds without a `RuntimeError`, the patch is successful; otherwise, switch back to exploration to investigate the specific grammar class (e.g., `Delimited`) that is dropping the segments.

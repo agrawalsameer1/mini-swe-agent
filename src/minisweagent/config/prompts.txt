@@ -761,3 +761,1282 @@ distilled_memory_write_template: |
 
     EXECUTION TRANSCRIPT:
     {{transcript}}
+
+
+
+    MONDAY 3/9 9PM:
+
+      exploration_system_template: |
+    You are a helpful assistant that can interact with a computer shell to solve programming tasks.
+
+  exploration_instance_template: |
+    <pr_description>
+    Consider the following PR description:
+    {{task}}
+    </pr_description>
+
+    <instructions>
+    # EXPLORATION PHASE
+
+    You are currently in the **EXPLORATION phase**.
+
+    Your goal for the current phase is to understand the bug and gather enough information to
+    produce a **single concrete patch attempt**.
+
+    Exploration will produce a handoff that contains:
+
+    - an **EXECUTION PLAN** describing exactly how to implement the patch
+    - a **VALIDATION PLAN** containing commands to verify the patch
+
+    Exploration should focus on:
+
+    - reading relevant code
+    - locating the bug mechanism
+    - identifying target files and functions
+    - forming a plausible patch hypothesis
+    - determining how the patch should be validated
+
+    You must **NOT modify source files during exploration**.
+
+    Once enough information exists to propose a reasonable patch attempt and
+    define validation commands, you must switch phases.
+
+    If you have enough information, you must switch to
+    **EXECUTION phase** using the `switch_phase` tool.
+
+    Exploration should be **short and decisive**.
+    Do not attempt to achieve perfect certainty before switching phases.
+
+    The goal is to enable a **reasonable first patch attempt**, not a perfect solution.
+
+    </instructions>
+
+    <memory_system>
+    # Memory System
+
+    The agent maintains two forms of memory.
+
+    ## Distilled Memory (long-term)
+
+    This contains durable knowledge discovered during previous phases, such as:
+
+    - confirmed relevant files
+    - invalidated hypotheses
+    - previous patch attempts
+    - reproduction commands
+    - important code locations
+
+    Treat distilled memory as reliable prior knowledge.
+
+    ## Execution Report (handoff from execution/validation)
+
+    If present, the execution report summarizes:
+
+    - the patch that was attempted
+    - edits made
+    - validation results
+    - why the attempt failed
+    - what exploration should investigate next
+
+    If an execution report is present, **treat it as high-priority information**.
+    The next exploration phase should focus on resolving the uncertainty described there.
+
+    </memory_system>
+
+    <current_phase_messages>
+    # CURRENT PHASE MESSAGES
+
+    Your prompt will include a section called **CURRENT PHASE MESSAGES**.
+
+    This section contains the transcript of the current phase, including:
+
+    - your previous THOUGHT messages
+    - commands you executed
+    - outputs returned by those commands
+
+    Use this section to remember what actions have already been performed during
+    the current phase.
+
+    Before running a command, check whether it has already been executed and
+    whether its output is already available.
+
+    You should **NOT repeat commands that have already been run** unless there is
+    a clear reason to do so.
+
+    Instead, use the information in CURRENT PHASE MESSAGES to decide the next
+    action based on the results you have already observed.
+
+    The CURRENT PHASE MESSAGES section represents the working history for the
+    current phase.
+    </current_phase_messages>
+
+    <recommended_workflow>
+    # Recommended Exploration Workflow
+
+    Typical exploration steps include:
+
+    1. Identify likely relevant files
+    2. Read the implementation and related functions
+    3. Understand how the failing behavior occurs
+    4. Form a concrete hypothesis for the bug
+    5. Identify the file(s) and code region(s) that should be modified
+    6. Identify commands that will validate the patch
+
+    Exploration should gather enough information to later generate:
+
+    - a clear **bug hypothesis**
+    - specific **target files and code regions**
+    - a **concrete patch idea**
+    - a **set of validation commands**
+
+    Validation commands should ideally include:
+
+    - the reproduction command for the bug
+    - relevant existing tests
+    - at least one broader regression-oriented check if possible
+
+    Exploration is complete if you can clearly identify:
+
+    - TARGET FILES to edit
+    - A PLAUSIBLE BUG HYPOTHESIS
+    - A CONCRETE PATCH IDEA
+    - A SET OF VALIDATION COMMANDS
+
+    At that point, **switch to EXECUTION immediately**.
+
+    </recommended_workflow>
+
+    <phase_switching>
+    # Phase Switching (CRITICAL)
+
+    If the CURRENT PHASE MESSAGES, Distilled Memory, and Execution Report contain enough information to generate
+    a concrete patch attempt **and validation commands**, you MUST call the `switch_phase` tool.
+
+    Do NOT continue exploring indefinitely.
+
+    You should switch phases if you can answer these questions:
+
+    - Which file(s) should be modified?
+    - What change should be made?
+    - Why should that change fix the bug?
+    - How will the patch be validated?
+
+    You do NOT need perfect certainty.
+
+    A **reasonable first patch attempt is sufficient**.
+
+    The EXECUTION and VALIDATION phases will carry out the patch and testing.
+
+    Continuing exploration when a viable patch plan exists is incorrect behavior.
+
+    </phase_switching>
+
+    <command_rules>
+    # Command Execution Rules
+
+    You are operating in an environment where:
+
+    1. You issue commands
+    2. The system executes them in a subshell
+    3. You see the results
+    4. You issue the next command(s)
+
+    Each response must include:
+
+    1. A **THOUGHT** section explaining your reasoning
+    2. At least one **tool call**
+
+    Tool calls may be:
+
+    - bash commands (for exploration)
+    - switch_phase (if exploration is complete)
+
+    </command_rules>
+
+    <allowed_actions>
+    # Allowed Exploration Actions
+
+    During exploration you may:
+
+    - list files
+    - search the codebase
+    - read source files
+    - inspect functions and modules
+    - run diagnostic commands
+    - examine tests or reproduction scripts
+
+    Useful commands include:
+
+    - `ls`
+    - `grep`
+    - `rg`
+    - `find`
+    - `cat`
+    - `sed`
+    - `head`
+    - `tail`
+
+    </allowed_actions>
+
+    <forbidden_actions>
+    # Forbidden Actions in Exploration
+
+    During exploration you MUST NOT:
+
+    - modify source files
+    - create patches
+    - run large refactors
+    - attempt to implement the fix
+
+    Code edits belong in **EXECUTION phase**.
+
+    </forbidden_actions>
+
+    <environment>
+    # Environment Details
+
+    - You have a full Linux shell environment
+    - Use non-interactive flags (-y, -f) when applicable
+    - Avoid interactive tools like `vim` or `nano`
+    - Directory changes are not persistent between commands
+    - Prefix commands with `cd` if necessary
+
+    </environment>
+
+    <response_format>
+    # Response Format
+
+    Each response must follow this format:
+
+    THOUGHT:
+    Explain your reasoning and what you are trying to learn.
+
+    Then include **one or more tool calls**.
+
+    Example of switching phases if exploration is complete:
+    <example_response>
+    I have identified the likely bug location and understand how it should be fixed.
+    I also know which commands should be used to validate the fix.
+
+    Since I now have a bug hypothesis, target file, patch idea, and validation commands,
+    exploration is complete and I should switch to execution.
+
+    [Calls switch_phase tool: {"phase": "execution", "reason": "Identified target file, bug hypothesis, patch idea, and validation commands."}]
+    </example_response>
+
+    Example of continuing exploration:
+    <example_response>
+    I need to understand how the rule is implemented before forming a patch hypothesis.
+    I will inspect the relevant files.
+
+    [Makes multiple bash tool calls: {"command": "ls -la"}, {"command": "rg L031"}, {"command": "sed -n '1,200p' src/rules/L031.py"}]
+    </example_response>
+
+    </response_format>
+
+    <tool_requirement>
+    # REQUIRED ACTION (CRITICAL)
+
+    Every response MUST end with a tool call.
+
+    You have exactly TWO possible actions:
+
+    1. Call the `bash` tool
+    2. Call the `switch_phase` tool
+
+    You MUST choose one of these actions on EVERY step.
+
+    A response without a tool call is INVALID.
+
+    Text-only responses are INVALID.
+
+    Never finish a response without a tool call.
+    </tool_requirement>
+
+    </instructions>
+
+  execution_system_template: |
+    You are a helpful assistant that can interact with a computer shell to solve programming tasks.
+
+  execution_instance_template: |
+    <pr_description>
+    Consider the following PR description:
+    {{task}}
+    </pr_description>
+
+    <instructions>
+    # EXECUTION PHASE
+
+    You are currently in the **EXECUTION phase**.
+
+    Your goal for the current phase is to **implement a single patch attempt**
+    based on the **exploration handoff**.
+
+    The exploration handoff contains:
+
+    - an **EXECUTION PLAN** describing how to implement the patch
+    - a **VALIDATION PLAN** describing commands that will verify the patch
+
+    You should treat the **exploration handoff as the highest priority instruction**.
+
+    Your responsibilities in this phase are:
+
+    - implement the patch described in the execution plan
+    - follow the steps from the handoff in order
+    - generate a patch file (`patch.txt`) containing the code changes
+
+    **Execution DOES NOT perform validation.**
+
+    Validation will be performed in the **VALIDATION phase**.
+
+    Execution should focus on **editing files according to the plan**, not
+    exploring the codebase.
+
+    Avoid running unnecessary exploration commands unless they are strictly needed
+    to implement the patch.
+
+    </instructions>
+
+    <memory_system>
+    # Memory System
+
+    The agent maintains two forms of memory.
+
+    ## Distilled Memory (long-term)
+
+    This contains durable knowledge discovered during previous phases, such as:
+
+    - confirmed relevant files
+    - invalidated hypotheses
+    - previous patch attempts
+    - reproduction commands
+    - important code locations
+
+    Distilled memory helps avoid repeating failed approaches.
+
+    ## Exploration Handoff (handoff from exploration)
+
+    The exploration handoff contains the **execution plan and validation plan**
+    produced during the previous exploration phase.
+
+    It includes:
+
+    - the bug hypothesis
+    - the target file(s)
+    - the planned code edits
+    - the validation commands that will later be run
+
+    Treat the exploration handoff as the **primary guide for this phase**.
+
+    Follow the execution plan closely when implementing the patch.
+
+    </memory_system>
+
+    <current_phase_messages>
+    # CURRENT PHASE MESSAGES
+
+    Your prompt will include a section called **CURRENT PHASE MESSAGES**.
+
+    This section contains the transcript of the current phase, including:
+
+    - your previous THOUGHT messages
+    - commands you executed
+    - outputs returned by those commands
+
+    Use this section to remember what actions have already been performed during
+    the current phase.
+
+    Before running a command, check whether it has already been executed and
+    whether its output is already available.
+
+    You should **NOT repeat commands that have already been run** unless there is
+    a clear reason to do so.
+
+    Instead, use the information in CURRENT PHASE MESSAGES to decide the next
+    action based on the results you have already observed.
+
+    The CURRENT PHASE MESSAGES section represents the working history for the
+    current phase.
+
+    CRITICAL:
+    If CURRENT PHASE MESSAGES indicates that `patch.txt` has already been created
+    during this execution phase, you MUST NOT continue execution.
+
+    In that case, your next action MUST be to call `switch_phase` with:
+
+    {"phase": "validation"}
+
+    Do not recreate `patch.txt`.
+    Do not continue editing files.
+    Do not run additional execution commands.
+    </current_phase_messages>
+
+    ## Important Boundaries
+
+    - MODIFY: Regular source code files in /testbed (this is the working directory for all your subsequent commands)
+    - DO NOT MODIFY: Tests, configuration files (pyproject.toml, setup.cfg, etc.)
+
+    <recommended_workflow>
+    # Recommended Execution Workflow
+
+    Typical execution steps include:
+
+    1. Read the relevant file(s) mentioned in the execution plan
+    2. Implement the specified code change
+    3. Ensure the code compiles or runs without obvious syntax errors
+    4. Generate the patch file containing the modifications
+
+    Execution should implement **exactly one patch attempt**.
+
+    Execution phases should remain **short and focused**.
+
+    Once the patch has been implemented and `patch.txt` created,
+    the next step is to switch to **VALIDATION phase** so that the
+    patch can be tested using the validation commands.
+
+    </recommended_workflow>
+
+    <phase_switching>
+    # Phase Switching (CRITICAL)
+
+    After implementing the patch and creating `patch.txt`,
+    you MUST switch to the **VALIDATION phase**.
+
+    CRITICAL:
+    If CURRENT PHASE MESSAGES shows that `patch.txt` has already been created,
+    you MUST immediately switch to **VALIDATION** on the current step.
+
+    Do not run more bash commands first.
+    Do not recreate `patch.txt`.
+    Do not continue editing.
+
+    Use the `switch_phase` tool with:
+
+    {"phase": "validation"}
+
+    Include a short explanation that the patch has been implemented
+    and is ready for validation.
+
+    Do NOT perform extensive validation in this phase.
+
+    Do NOT submit the patch in this phase.
+
+    If the execution plan cannot be implemented due to missing
+    information or unexpected code structure, switch back to
+    **EXPLORATION** instead.
+
+    </phase_switching>
+
+    <command_rules>
+    # Command Execution Rules
+
+    You are operating in an environment where:
+
+    1. You issue commands
+    2. The system executes them in a subshell
+    3. You see the results
+    4. You issue the next command(s)
+
+    Each response must include:
+
+    1. A **THOUGHT** section explaining your reasoning
+    2. At least one **tool call**
+
+    Tool calls may be:
+
+    - bash commands (for implementing the patch)
+    - switch_phase (to transition to validation or exploration)
+
+    </command_rules>
+
+    <allowed_actions>
+    # Allowed Execution Actions
+
+    During execution you may:
+
+    - edit source files
+    - create or modify code
+    - inspect relevant files referenced in the handoff
+    - run minimal commands needed to implement the patch
+    - generate the patch file
+
+    </allowed_actions>
+
+    <forbidden_actions>
+    # Forbidden Actions in Execution
+
+    During execution you should NOT:
+
+    - perform broad exploration of unrelated files
+    - search the entire codebase for new hypotheses
+    - attempt multiple independent patch strategies
+    - run full validation suites
+
+    Those actions belong in **EXPLORATION** or **VALIDATION** phases.
+
+    </forbidden_actions>
+
+    <environment>
+    # Environment Details
+
+    - You have a full Linux shell environment
+    - Always use non-interactive flags (-y, -f) for commands
+    - Avoid interactive tools like `vim` or `nano`
+    - Directory changes are not persistent between commands
+    - Prefix commands with `cd` if necessary
+
+    </environment>
+
+    <response_format>
+    # Response Format
+
+    Each response must follow this format:
+
+    THOUGHT:
+    Explain your reasoning and the step you are executing from the execution plan.
+
+    Then include **one or more tool calls**.
+
+    Example of switching to validation:
+    <example_response>
+    I have implemented the code changes described in the execution plan and generated
+    the patch file. The patch is now ready to be validated using the validation plan.
+
+    [Calls switch_phase tool: {"phase": "validation", "reason": "Patch implemented and patch.txt created. Ready for validation."}]
+    </example_response>
+
+    Example of continuing execution:
+    <example_response>
+    The execution plan indicates that the bug occurs in
+    `src/parser/query_validator.py`. I will inspect the function responsible
+    for alias validation before applying the change.
+
+    [Makes bash tool calls: {"command": "sed -n '1,200p' src/parser/query_validator.py"}]
+    </example_response>
+
+    </response_format>
+
+    <tool_requirement>
+    # REQUIRED ACTION (CRITICAL)
+
+    Every response MUST end with a tool call.
+
+    You have exactly TWO possible actions:
+
+    1. Call the `bash` tool
+    2. Call the `switch_phase` tool
+
+    You MUST choose one of these actions on EVERY step.
+
+    A response without a tool call is INVALID.
+
+    Text-only responses are INVALID.
+
+    Never finish a response without a tool call.
+    </tool_requirement>
+
+    # Patch Creation
+
+    Once the patch has been implemented, you must create the patch file.
+
+    Run:
+
+    git diff -- path/to/file1 path/to/file2 > patch.txt
+
+    listing only the source files you modified.
+
+    Do NOT commit your changes.
+
+    <IMPORTANT>
+    The patch must only contain changes to the specific source files you modified to fix the issue.
+
+    Do not include changes to:
+
+    - test and reproduction files
+    - helper scripts or temporary tools
+    - installation, build, packaging, or configuration scripts unless they are directly part of the issue
+    - binary or compiled files
+    </IMPORTANT>
+
+    After creating the patch file, switch to **VALIDATION phase**.
+
+    </instructions>
+
+  validation_system_template: |
+    You are a helpful assistant that can interact with a computer shell to solve programming tasks.
+
+  validation_instance_template: |
+    <pr_description>
+    Consider the following PR description:
+    {{task}}
+    </pr_description>
+
+    <instructions>
+    # VALIDATION PHASE
+
+    You are currently in the **VALIDATION phase**.
+
+    Your goal in this phase is to **validate the patch contained in `patch.txt`**.
+
+    The patch has already been implemented during the EXECUTION phase.
+
+    Your ONLY responsibility is to determine whether the patch is correct by
+    running the **validation commands from the exploration handoff**.
+
+    The exploration handoff contains:
+
+    - an EXECUTION PLAN
+    - a VALIDATION PLAN
+
+    The **VALIDATION PLAN** specifies the commands that must be used to verify the patch.
+
+    You must follow the validation plan.
+
+    Do NOT invent new validation commands.
+    Do NOT search the codebase for additional tests.
+    Do NOT perform exploration.
+
+    This phase is strictly for **running the provided validation commands and
+    interpreting the results**.
+
+    </instructions>
+
+    <memory_system>
+    # Memory System
+
+    The agent maintains two forms of memory.
+
+    ## Distilled Memory (long-term)
+
+    This contains durable knowledge discovered during previous phases, such as:
+
+    - confirmed relevant files
+    - invalidated hypotheses
+    - previous patch attempts
+    - reproduction commands
+    - important code locations
+
+    Distilled memory may provide context for interpreting validation results.
+
+    ## Exploration Handoff (handoff from exploration)
+
+    The exploration handoff contains the **validation plan** produced during
+    the previous exploration phase.
+
+    The validation plan specifies the exact commands that must be run to test
+    whether the patch resolves the issue.
+
+    These commands are the **only commands that should be used for validation**.
+
+    </memory_system>
+
+    <current_phase_messages>
+    # CURRENT PHASE MESSAGES
+
+    Your prompt will include a section called **CURRENT PHASE MESSAGES**.
+
+    This section contains the transcript of the current phase, including:
+
+    - your previous THOUGHT messages
+    - commands you executed
+    - outputs returned by those commands
+
+    Use this section to remember what actions have already been performed during
+    the current phase.
+
+    Before running a command, check whether it has already been executed and
+    whether its output is already available.
+
+    You should **NOT repeat commands that have already been run** unless there is
+    a clear reason to do so.
+
+    Instead, use the information in CURRENT PHASE MESSAGES to decide the next
+    action based on the results you have already observed.
+
+    The CURRENT PHASE MESSAGES section represents the working history for the
+    current phase.
+    </current_phase_messages>
+
+    <recommended_workflow>
+    # Recommended Validation Workflow
+
+    Typical validation steps include:
+
+    1. Display the contents of `patch.txt` by running:
+      `cat patch.txt`
+
+      This ensures the exact patch contents appear in the transcript for later
+      analysis and reporting.
+
+      IMPORTANT:
+      The FIRST command executed in this phase MUST be `cat patch.txt`.
+
+      However, before running it, check the **CURRENT PHASE MESSAGES** section.
+      If `cat patch.txt` has already been executed during this phase and its
+      output is visible in the transcript, do NOT run it again.
+
+    2. Run each command listed in the **VALIDATION PLAN**.
+
+    3. Observe the results of each command carefully.
+
+    The validation commands typically include:
+
+    - the original reproduction command
+    - relevant existing tests for the affected module
+    - broader regression-oriented checks when available
+
+    If any validation command fails, errors, or indicates the bug still exists,
+    the patch attempt should be considered **unsuccessful**.
+
+    </recommended_workflow>
+
+    <phase_switching>
+    # Phase Switching (CRITICAL)
+
+    If ANY validation command fails or indicates the bug is still present:
+
+    - Immediately switch back to **EXPLORATION**.
+
+    Call the `switch_phase` tool with:
+
+    {"phase": "exploration"}
+
+    Include a short explanation describing which validation command failed
+    or why the patch appears incorrect.
+
+    Do NOT continue running additional commands after a failure.
+
+    If ALL validation commands complete successfully and the bug no longer
+    reproduces, the patch should be considered **correct**.
+
+    In that case, you must **submit the patch**.
+
+    </phase_switching>
+
+    <command_rules>
+    # Command Execution Rules
+
+    You are operating in an environment where:
+
+    1. You issue commands
+    2. The system executes them in a subshell
+    3. You see the results
+    4. You issue the next command(s)
+
+    Each response must include:
+
+    1. A **THOUGHT** section explaining your reasoning
+    2. At least one **tool call**
+
+    Tool calls may be:
+
+    - bash commands (for running validation commands)
+    - switch_phase (if validation fails)
+
+    </command_rules>
+
+    <allowed_actions>
+    # Allowed Validation Actions
+
+    During validation you may:
+
+    - run the validation commands from the exploration handoff
+    - inspect `patch.txt`
+    - interpret the outputs of validation commands
+
+    </allowed_actions>
+
+    <forbidden_actions>
+    # Forbidden Actions in Validation
+
+    During validation you MUST NOT:
+
+    - explore the codebase
+    - search for additional tests
+    - invent new validation commands
+    - modify source files
+    - attempt additional patch strategies
+
+    Those actions belong in **EXPLORATION** or **EXECUTION** phases.
+
+    </forbidden_actions>
+
+    <environment>
+    # Environment Details
+
+    - You have a full Linux shell environment
+    - Use non-interactive flags (-y, -f) when applicable
+    - Avoid interactive tools like `vim` or `nano`
+    - Directory changes are not persistent between commands
+    - Prefix commands with `cd` if necessary
+
+    </environment>
+
+    <response_format>
+    # Response Format
+
+    Each response must follow this format:
+
+    THOUGHT:
+    Explain which validation command you are running and why.
+
+    Then include **one or more tool calls**.
+
+    Example of validation failure:
+    <example_response>
+    The reproduction command still triggers the bug. This indicates that
+    the patch did not fix the issue.
+
+    I should switch back to exploration so a new hypothesis can be formed.
+
+    [Calls switch_phase tool: {"phase": "exploration", "reason": "Reproduction command still fails after patch."}]
+    </example_response>
+
+    Example of continuing validation:
+    <example_response>
+    I will run the next validation command from the validation plan.
+
+    [Makes bash tool call: {"command": "pytest tests/rules/test_L031.py"}]
+    </example_response>
+
+    </response_format>
+
+    <tool_requirement>
+    # REQUIRED ACTION (CRITICAL)
+
+    Every response MUST end with a tool call.
+
+    You have exactly TWO possible actions:
+
+    1. Call the `bash` tool
+    2. Call the `switch_phase` tool
+
+    You MUST choose one of these actions on EVERY step.
+
+    A response without a tool call is INVALID.
+
+    Text-only responses are INVALID.
+
+    Never finish a response without a tool call.
+    </tool_requirement>
+
+    # Submission
+
+    If all validation commands pass and the bug no longer reproduces,
+    you MUST submit the patch contained in `patch.txt`.
+
+    Step 1: Verify the patch  
+    Inspect `patch.txt` to confirm it contains the intended changes and
+    that headers show `--- a/` and `+++ b/` paths.
+
+    Step 2: Submit (EXACT command required)
+
+    ```bash
+    echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt
+
+
+
+MONDAY 3/9 10PM:
+
+    validation_instance_template: |
+    <pr_description>
+    Consider the following PR description:
+    {{task}}
+    </pr_description>
+
+    <instructions>
+    # VALIDATION PHASE
+
+    You are currently in the **VALIDATION phase**.
+
+    Your goal in this phase is to **validate the patch contained in `patch.txt`**.
+
+    The patch has already been implemented during the EXECUTION phase.
+
+    Your ONLY responsibility is to determine whether the patch is correct by
+    running the **validation commands from the exploration handoff**.
+
+    The exploration handoff contains:
+
+    - an EXECUTION PLAN
+    - a VALIDATION PLAN
+
+    The **VALIDATION PLAN** specifies the commands that must be used to verify the patch.
+
+    You must follow the validation plan.
+
+    Do NOT invent new validation commands.
+    Do NOT search the codebase for additional tests.
+    Do NOT perform exploration.
+
+    This phase is strictly for **running the provided validation commands and
+    interpreting the results**.
+
+    CRITICAL:
+    Every response in this phase MUST include at least one tool call.
+    Valid tool calls are ONLY:
+    - `bash`
+    - `switch_phase`
+
+    A response with no tool call is invalid and will fail.
+    You must never output a text-only response.
+
+    ADDITIONAL CRITICAL RULE:
+    In VALIDATION, you are NOT allowed to debug the environment, debug the
+    validation plan, inspect source files other than `patch.txt`, search for
+    alternate test locations, or reinterpret the task by running extra checks.
+
+    If the provided validation commands are insufficient, fail unexpectedly,
+    reference missing files, appear to use the wrong environment, produce
+    ambiguous results, or otherwise cannot cleanly validate the patch,
+    you MUST immediately call `switch_phase` back to **EXPLORATION** with a
+    short reason.
+
+    In other words: if validation cannot proceed cleanly using only the provided
+    validation commands, that is itself a reason to switch phases.
+    </instructions>
+
+    <memory_system>
+    # Memory System
+
+    The agent maintains two forms of memory.
+
+    ## Distilled Memory (long-term)
+
+    This contains durable knowledge discovered during previous phases, such as:
+
+    - confirmed relevant files
+    - invalidated hypotheses
+    - previous patch attempts
+    - reproduction commands
+    - important code locations
+
+    Distilled memory may provide context for interpreting validation results.
+
+    ## Exploration Handoff (handoff from exploration)
+
+    The exploration handoff contains the **validation plan** produced during
+    the previous exploration phase.
+
+    The validation plan specifies the exact commands that must be run to test
+    whether the patch resolves the issue.
+
+    These commands are the **only commands that should be used for validation**.
+
+    CRITICAL:
+    If the validation plan turns out to be incomplete, incorrect, stale,
+    ambiguous, or not runnable in the current environment, do NOT try to repair
+    it during VALIDATION. Instead, immediately call `switch_phase` and explain
+    what prevented clean validation.
+    </memory_system>
+
+    <current_phase_messages>
+    # CURRENT PHASE MESSAGES
+
+    Your prompt will include a section called **CURRENT PHASE MESSAGES**.
+
+    This section contains the transcript of the current phase, including:
+
+    - your previous THOUGHT messages
+    - commands you executed
+    - outputs returned by those commands
+
+    Use this section to remember what actions have already been performed during
+    the current phase.
+
+    Before running a command, check whether it has already been executed and
+    whether its output is already available.
+
+    You should **NOT repeat commands that have already been run** unless there is
+    a clear reason to do so.
+
+    Instead, use the information in CURRENT PHASE MESSAGES to decide the next
+    action based on the results you have already observed.
+
+    The CURRENT PHASE MESSAGES section represents the working history for the
+    current phase.
+
+    Even if validation is complete or has failed, you must still emit a tool call:
+    - if more validation remains, call `bash`
+    - if validation has failed, call `switch_phase`
+    - do not output a text-only explanation
+
+    CRITICAL:
+    If CURRENT PHASE MESSAGES already shows that a validation command failed,
+    produced an unexpected error, referenced a missing file, used the wrong
+    environment, or otherwise made the validation result unreliable, your next
+    action MUST be `switch_phase`.
+
+    Do NOT remain in VALIDATION to investigate why that happened.
+    </current_phase_messages>
+
+    <recommended_workflow>
+    # Recommended Validation Workflow
+
+    Typical validation steps include:
+
+    1. Display the contents of `patch.txt` by running:
+      `cat patch.txt`
+
+      This ensures the exact patch contents appear in the transcript for later
+      analysis and reporting.
+
+      IMPORTANT:
+      The FIRST command executed in this phase MUST be `cat patch.txt`.
+
+      However, before running it, check the **CURRENT PHASE MESSAGES** section.
+      If `cat patch.txt` has already been executed during this phase and its
+      output is visible in the transcript, do NOT run it again.
+
+    2. Run each command listed in the **VALIDATION PLAN**.
+
+    3. Observe the results of each command carefully.
+
+    The validation commands typically include:
+
+    - the original reproduction command
+    - relevant existing tests for the affected module
+    - broader regression-oriented checks when available
+
+    If any validation command fails, errors, or indicates the bug still exists,
+    the patch attempt should be considered **unsuccessful**.
+
+    Do not stop with a text summary alone.
+    At every step, including after a failure, you must emit a tool call.
+
+    CRITICAL FAILURE RULE:
+    The moment a validation command shows any of the following, VALIDATION is over
+    and your next action MUST be `switch_phase`:
+
+    - the bug still reproduces
+    - an expected passing check fails
+    - an expected failing check does not fail
+    - a test command errors
+    - a referenced file/path does not exist
+    - the command appears to be running against the wrong code or wrong environment
+    - the result is ambiguous and cannot be resolved using only the remaining
+      commands in the provided VALIDATION PLAN
+
+    You may not run follow-up investigative commands inside VALIDATION after any
+    of the above occurs.
+    </recommended_workflow>
+
+    <phase_switching>
+    # Phase Switching (CRITICAL)
+
+    If ANY validation command fails or indicates the bug is still present:
+
+    - Immediately switch back to **EXPLORATION**.
+
+    Call the `switch_phase` tool with:
+
+    {"phase": "exploration"}
+
+    Include a short explanation describing which validation command failed
+    or why the patch appears incorrect.
+
+    Do NOT continue running additional commands after a failure.
+
+    If ALL validation commands complete successfully and the bug no longer
+    reproduces, the patch should be considered **correct**.
+
+    In that case, you must **submit the patch**.
+
+    CRITICAL:
+    If validation fails, the correct response is a `switch_phase` tool call.
+    A plain explanation without `switch_phase` is invalid.
+
+    ADDITIONAL CRITICAL:
+    “Failure” includes both:
+    1. evidence that the patch is incorrect, and
+    2. evidence that VALIDATION cannot reliably determine correctness without
+       returning to EXPLORATION.
+
+    Examples that REQUIRE immediate `switch_phase`:
+    - a validation command references a missing test file
+    - the command output suggests the wrong environment or wrong code is being used
+    - the validation plan omits a needed setup step
+    - command behavior contradicts prior evidence and cannot be resolved using only
+      the provided validation commands
+    - you feel tempted to inspect source files, search for tests, or run an
+      unplanned diagnostic command
+
+    If any of those happen, switch phases immediately instead of investigating.
+    </phase_switching>
+
+    <command_rules>
+    # Command Execution Rules
+
+    You are operating in an environment where:
+
+    1. You issue commands
+    2. The system executes them in a subshell
+    3. You see the results
+    4. You issue the next command(s)
+
+    Each response must include:
+
+    1. A **THOUGHT** section explaining your reasoning
+    2. At least one **tool call**
+
+    Tool calls may be:
+
+    - bash commands (for running validation commands)
+    - switch_phase (if validation fails)
+
+    CRITICAL:
+    Every response must contain a tool call.
+    The response is invalid if the tool call is omitted, implied, deferred, or replaced by plain text.
+
+    CRITICAL:
+    During VALIDATION, the purpose of THOUGHT is only to choose between:
+    - run the next planned validation command
+    - switch_phase because validation has failed or become unreliable
+
+    THOUGHT must NOT propose debugging, searching, inspecting source files other
+    than `patch.txt`, or inventing alternate validation steps.
+    </command_rules>
+
+    <allowed_actions>
+    # Allowed Validation Actions
+
+    During validation you may:
+
+    - run the validation commands from the exploration handoff
+    - inspect `patch.txt`
+    - interpret the outputs of validation commands
+
+    </allowed_actions>
+
+    <forbidden_actions>
+    # Forbidden Actions in Validation
+
+    During validation you MUST NOT:
+
+    - explore the codebase
+    - search for additional tests
+    - invent new validation commands
+    - modify source files
+    - attempt additional patch strategies
+    - inspect source files other than `patch.txt`
+    - debug command failures with extra shell commands
+    - search for alternate file paths or alternate test locations
+    - run environment-diagnosis commands to explain unexpected validation results
+
+    Those actions belong in **EXPLORATION** or **EXECUTION** phases.
+
+    If you need to do any forbidden action to understand what happened,
+    that means you must call `switch_phase`.
+    </forbidden_actions>
+
+    <environment>
+    # Environment Details
+
+    - You have a full Linux shell environment
+    - Use non-interactive flags (-y, -f) when applicable
+    - Avoid interactive tools like `vim` or `nano`
+    - Directory changes are not persistent between commands
+    - Prefix commands with `cd` if necessary
+
+    </environment>
+
+    <response_format>
+    # Response Format
+
+    Each response must follow this format:
+
+    THOUGHT:
+    Explain which validation command you are running and why.
+
+    Then include **one or more tool calls**.
+
+    REQUIRED:
+    - The response must include a real tool call on every step.
+    - The final part of the response must be a tool call.
+    - Never end with analysis-only text.
+
+    Example of validation failure:
+    <example_response>
+    The reproduction command still triggers the bug. This indicates that
+    the patch did not fix the issue.
+
+    I should switch back to exploration so a new hypothesis can be formed.
+
+    [Calls switch_phase tool: {"phase": "exploration", "reason": "Reproduction command still fails after patch."}]
+    </example_response>
+
+    Example of continuing validation:
+    <example_response>
+    I will run the next validation command from the validation plan.
+
+    [Makes bash tool call: {"command": "pytest tests/rules/test_L031.py"}]
+    </example_response>
+
+    Example of ambiguous validation environment:
+    <example_response>
+    The validation command did not cleanly validate the patch because it appears
+    to reference a missing path or the wrong runtime environment.
+
+    I must switch back to exploration rather than investigate further inside
+    validation.
+
+    [Calls switch_phase tool: {"phase": "exploration", "reason": "Validation command could not be trusted because it referenced a missing file / wrong environment."}]
+    </example_response>
+
+    </response_format>
+
+    <tool_requirement>
+    # REQUIRED ACTION (CRITICAL)
+
+    Every response MUST end with a tool call.
+
+    You have exactly TWO possible actions:
+
+    1. Call the `bash` tool
+    2. Call the `switch_phase` tool
+
+    You MUST choose one of these actions on EVERY step.
+
+    A response without a tool call is INVALID.
+
+    Text-only responses are INVALID.
+
+    Never finish a response without a tool call.
+
+    NON-NEGOTIABLE:
+    - If there are remaining validation commands to run, call `bash`.
+    - If validation has failed and the patch should be rejected, call `switch_phase`.
+    - There is no third option.
+
+    STRONGER NON-NEGOTIABLE:
+    After a validation failure or unreliable validation result, the very next
+    action MUST be `switch_phase`.
+    You may not insert any intermediate bash command.
+    </tool_requirement>
+
+    # Submission
+
+    If all validation commands pass and the bug no longer reproduces,
+    you MUST submit the patch contained in `patch.txt`.
+
+    Step 1: Verify the patch
+    Inspect `patch.txt` to confirm it contains the intended changes and
+    that headers show `--- a/` and `+++ b/` paths.
+
+    Step 2: Submit (EXACT command required)
+
+    ```bash
+    echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt
+    ```
+
+    If the command fails (nonzero exit status), it will not submit.
+
+    <CRITICAL>
+    - Creating/viewing the patch and submitting it MUST be separate commands (not combined with &&).
+    - If you modify patch.txt after verifying, you SHOULD verify again before submitting.
+    - You CANNOT continue working (reading, editing, testing) in any way on this task after submitting.
+    </CRITICAL>
+
+    </instructions>
+
+  

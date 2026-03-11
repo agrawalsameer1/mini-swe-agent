@@ -1,0 +1,61 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `IsNull` lookup in Django currently accepts any value for its right-hand side (`rhs`). It uses the truthiness of the value to determine whether to generate `IS NULL` or `IS NOT NULL`. This leads to undocumented and potentially confusing behavior when non-boolean values are used. The fix is to strictly validate that the `rhs` is a boolean or `None` (to support custom subclasses that allow `None`).
+
+2. **Primary Target File**: `django/db/models/lookups.py`
+   - **Class**: `IsNull` (around line 461)
+
+3. **Implementation Steps**:
+   - Open `django/db/models/lookups.py`.
+   - Locate the `IsNull` class definition.
+   - Add an `__init__` method to the `IsNull` class before the `as_sql` method.
+   - The `__init__` method must perform the following check:
+     ```python
+     def __init__(self, lhs, rhs):
+         if not isinstance(rhs, bool) and rhs is not None:
+             raise ValueError(
+                 "The QuerySet value for an 'isnull' lookup must be True or False."
+             )
+         super().__init__(lhs, rhs)
+     ```
+   - Ensure that the `super().__init__(lhs, rhs)` call is present to maintain standard lookup initialization.
+   - Verify that no unintended changes (like the `FullResultSet` import error from previous attempts) are introduced.
+
+4. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- Create and run a reproduction script (e.g., `reproduce_isnull.py`) with the following content to verify both success and failure cases:
+```python
+import django
+from django.conf import settings
+from django.db.models.lookups import IsNull
+from django.db.models.expressions import Col
+
+if not settings.configured:
+    settings.configure(DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}})
+    django.setup()
+
+lhs = Col('table', 'field')
+# Should pass
+for val in [True, False, None]:
+    try:
+        IsNull(lhs, val)
+        print(f"Value {val} passed")
+    except Exception as e:
+        print(f"Value {val} failed: {e}")
+
+# Should fail
+for val in ['truthy', '', 1, 0]:
+    try:
+        IsNull(lhs, val)
+        print(f"Value {repr(val)} unexpectedly passed")
+    except ValueError as e:
+        print(f"Caught expected error for {repr(val)}: {e}")
+```
+- Run the specific regression test for custom `IsNull` subclasses:
+  `python tests/runtests.py lookup.tests.LookupTests.test_custom_lookup_none_rhs`
+- Run the general lookup tests to ensure no regressions:
+  `python tests/runtests.py lookup.tests`

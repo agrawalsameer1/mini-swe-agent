@@ -1,0 +1,35 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `SQLCompiler.ordering_parts` regular expression in `django/db/models/sql/compiler.py` does not use the `re.DOTALL` flag. Consequently, when processing multiline `RawSQL` expressions in an `order_by` clause, the `.*` in the regex only matches the last line of the SQL string. If multiple `RawSQL` expressions have identical last lines (e.g., `else null end`), they are incorrectly identified as duplicates and stripped from the final query.
+
+2. **Primary Target File**: `django/db/models/sql/compiler.py`
+
+3. **Modify `SQLCompiler.__init__`**:
+    - Locate the initialization of `self.ordering_parts` (around line 35).
+    - Change the regex compilation to include the `re.DOTALL` flag so that `.` matches newline characters.
+    - **Current code**: `self.ordering_parts = re.compile(r'(.*)\s(ASC|DESC)(.*)')`
+    - **New code**: `self.ordering_parts = re.compile(r'(.*)\s(ASC|DESC)(.*)', re.DOTALL)`
+
+4. **Verify Logic**:
+    - In `get_order_by`, the code calls `self.ordering_parts.search(sql).group(1)`.
+    - With `re.DOTALL`, `group(1)` will now correctly capture the entire SQL string preceding the ordering direction, even if it spans multiple lines.
+    - This ensures that the `seen` set correctly distinguishes between different multiline `RawSQL` expressions.
+
+5. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- **Reproduction Check**: Run the reproduction script created during exploration to verify the fix.
+  - `python reproduce_issue.py`
+  - *Expected output*: "SUCCESS: All ORDER BY clauses are present."
+
+- **Regression Check (Model Ordering)**: Run existing Django tests related to model ordering to ensure no regressions in standard `order_by` behavior.
+  - `python tests/runtests.py ordering`
+
+- **Regression Check (Expressions)**: Run existing Django tests related to expressions and RawSQL.
+  - `python tests/runtests.py expressions`
+
+- **Regression Check (Basic Queries)**: Run basic query tests to ensure general compiler stability.
+  - `python tests/runtests.py queries`

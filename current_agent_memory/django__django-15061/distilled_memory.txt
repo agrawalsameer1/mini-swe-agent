@@ -1,0 +1,42 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **`django/forms/widgets.py`**: 
+    - `MultiWidget` class (starts around line 793).
+    - `MultiWidget.id_for_label` (lines 851-854): This method currently appends `_0` to the provided `id_`.
+    - `Widget.id_for_label` (lines 268-278): The base implementation which returns the `id_` as-is.
+    - `ChoiceWidget.id_for_label` (lines 645-651): A reference implementation that uses `self.add_id_index` to decide whether to append an index.
+
+- **`tests/forms_tests/widget_tests/test_multiwidget.py`**: Contains existing tests for `MultiWidget` functionality, though it currently lacks specific tests for `id_for_label`.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism**: `MultiWidget.id_for_label` is hardcoded to return `id_ + '_0'`. This forces the `<label>` for a `MultiValueField` to always point to the first subwidget's ID (e.g., `id_field_0`), even if that behavior is not desired or if the user wants the label to point to the container or the field ID itself.
+- **Hypothesis**: Removing `MultiWidget.id_for_label` will cause it to inherit `Widget.id_for_label`, which returns the base `id_`. This aligns with the PR requirement to remove the automatic `_0` suffixing, making it consistent with other widgets that don't force a sub-index on the primary label ID unless explicitly configured (like `ChoiceWidget`).
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+- **Reproduction Script**: A script to verify the current vs. expected behavior of `id_for_label`.
+```python
+from django.forms.widgets import MultiWidget, TextInput
+class MyMultiWidget(MultiWidget):
+    def __init__(self, attrs=None):
+        widgets = [TextInput(), TextInput()]
+        super().__init__(widgets, attrs)
+    def decompress(self, value):
+        return value.split(',') if value else [None, None]
+
+widget = MyMultiWidget()
+print(f"ID for label: {widget.id_for_label('id_field')}")
+# Current output: id_field_0
+# Expected output after fix: id_field
+```
+- **Test Execution**:
+    - `export PYTHONPATH=$PYTHONPATH:.`
+    - `python3 tests/runtests.py forms_tests.widget_tests.test_multiwidget` (Note: Requires `asgiref` to be present in the environment for full Django initialization).
+
+# FAILED PATCH ATTEMPTS
+
+- None so far. The exploration phase concluded with a clear plan to remove the method. Previous attempts to run reproduction scripts failed due to environment issues (`ModuleNotFoundError: No module named 'asgiref'`), not due to logic errors in the proposed fix.

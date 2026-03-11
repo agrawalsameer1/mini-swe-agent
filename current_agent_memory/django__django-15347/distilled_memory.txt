@@ -1,0 +1,63 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/contrib/messages/storage/cookie.py**: Contains the serialization and deserialization logic for messages.
+    - `MessageEncoder.default`: Line 23 uses `if obj.extra_tags:` which incorrectly filters out empty strings.
+    - `MessageDecoder.process_messages`: Reconstructs `Message` objects; if `extra_tags` was omitted during encoding, it defaults to `None`.
+- **django/contrib/messages/storage/base.py**: Defines the `Message` class.
+    - `Message.__init__`: Signature is `def __init__(self, level, message, extra_tags=None)`.
+- **django/contrib/messages/storage/session.py**: Uses the same encoder/decoder logic, making it susceptible to the same bug.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The bug is caused by an overly broad truthiness check during serialization that fails to distinguish between a missing value (`None`) and an empty string (`""`).
+
+1.  **Serialization**: In `django/contrib/messages/storage/cookie.py`, `MessageEncoder.default` performs `if obj.extra_tags:`. If `extra_tags` is an empty string `""`, this evaluates to `False`, and the tag is omitted from the serialized list.
+2.  **Deserialization**: `MessageDecoder.process_messages` uses `Message(*obj[2:])` to reconstruct the object. If the list only has four elements (key, is_safedata, level, message), the `Message` constructor's `extra_tags` parameter defaults to `None`.
+3.  **Impact**: This causes `Message.tags` to return different results than expected (e.g., it might return `"tag1"` instead of `"tag1 "` if an empty string was intended to add a trailing space).
+
+**Confirmed Hypothesis**: The check in `MessageEncoder.default` must be changed from `if obj.extra_tags:` to `if obj.extra_tags is not None:` to ensure empty strings are explicitly included in the serialized output.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+**Reproduction Script (`reproduce_bug.py`)**:
+```python
+import django
+from django.conf import settings
+if not settings.configured:
+    settings.configure()
+django.setup()
+from django.contrib.messages.storage.base import Message
+from django.contrib.messages.storage.cookie import MessageEncoder, MessageDecoder
+
+original_message = Message(10, "Test message", extra_tags="")
+encoded = MessageEncoder().encode(original_message)
+decoded = MessageDecoder().decode(encoded)
+
+print(f"Original extra_tags: '{original_message.extra_tags}'")
+print(f"Decoded extra_tags: {decoded.extra_tags}")
+
+if decoded.extra_tags == "":
+    print("SUCCESS: extra_tags preserved")
+else:
+    print("FAILURE: extra_tags converted to None")
+    exit(1)
+```
+
+**Execution Command**:
+```bash
+export PYTHONPATH=$PYTHONPATH:.
+python3 reproduce_bug.py
+```
+
+**Django Test Suite**:
+```bash
+python3 tests/runtests.py messages_tests
+```
+
+# FAILED PATCH ATTEMPTS
+
+- **Empty Patch**: An initial validation attempt found that `patch.txt` was empty, and the bug remained present in the codebase. No actual code changes were applied in that attempt.
+- **Missing Execution**: Previous phases identified the fix but failed to successfully apply and verify the file write operation before moving to validation. Future attempts must ensure `sed` or file writes are verified with `cat` or `grep` before concluding the execution phase.

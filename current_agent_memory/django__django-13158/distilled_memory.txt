@@ -1,0 +1,33 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/db/models/sql/compiler.py**:
+    - `SQLCompiler.as_sql()`: The entry point for SQL generation. This is where the check for an empty query (`self.query.is_empty()`) should occur.
+    - `SQLCompiler.get_combinator_sql()`: Handles UNION, INTERSECT, and EXCEPT queries. It currently ignores the top-level `where` clause (and thus `NothingNode` added by `.none()`), leading to the bug.
+    - `SQLCompiler.pre_sql_setup()`: Responsible for initializing `self.select` and `self.klass_info`.
+- **django/db/models/query.py**:
+    - `ModelIterable.__iter__`: The iterator that crashes with `TypeError: 'NoneType' object is not subscriptable` if `as_sql` raises `EmptyResultSet` before `compiler.klass_info` is populated.
+- **django/db/models/sql/query.py**:
+    - `Query.set_empty()` and `Query.is_empty()`: Manage the `NothingNode` in the `where` clause that signifies an empty result set.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism**: When `.none()` is called on a combined QuerySet (e.g., `qs1.union(qs2).none()`), a `NothingNode` is added to the top-level `Query.where`. However, `SQLCompiler.get_combinator_sql` only iterates over the component queries and ignores the top-level `where` clause entirely.
+- **Regression Mechanism**: A naive fix of raising `EmptyResultSet` at the start of `SQLCompiler.as_sql` causes a crash in `ModelIterable.__iter__`. This is because `ModelIterable` expects `compiler.klass_info` to be populated even if the query is empty. `klass_info` is normally populated during `pre_sql_setup()`.
+- **Working Hypothesis**: The fix must check `self.query.is_empty()` within `SQLCompiler.as_sql`, but only *after* `self.pre_sql_setup()` has been called. This ensures that the metadata required by the ORM's iterable classes is present, while still allowing the query to exit early with an `EmptyResultSet` exception that the execution engine handles to return an empty iterator.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+- **reproduce_issue.py**: A script using `ModelForm` and `ModelMultipleChoiceField` with a unioned queryset to demonstrate that `.none()` is ignored during form saving.
+- **test_none.py**: A simple script checking `qs.union(...).none().count()`.
+- **test_empty_queryset.py**: Specifically checks if the compiler raises `EmptyResultSet` for a unioned query marked as empty.
+- **Validation**: `PYTHONPATH=. python ./tests/runtests.py queries model_forms`
+
+# FAILED PATCH ATTEMPTS
+
+- **Attempt 1**: Added `if self.query.is_empty(): raise EmptyResultSet` at the very beginning of `SQLCompiler.as_sql`.
+    - **Result**: `TypeError: 'NoneType' object is not subscriptable` in `django/db/models/query.py`.
+    - **Reason**: `klass_info` was not initialized because `pre_sql_setup()` (which calls `get_select`) was skipped.
+    - **Lesson**: Metadata initialization must precede the early exit for empty result sets in the compiler.

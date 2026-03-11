@@ -1,0 +1,40 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The `django.contrib.admin.utils.display_for_field` function lacks a specific case for `models.JSONField`. When a `JSONField` is marked as readonly in the Django admin, the function falls through to a default `str(value)` call on the Python dictionary/list. This results in a Python-style representation (e.g., using single quotes like `{'a': 1}`) instead of valid JSON (which requires double quotes like `{"a": 1}`).
+
+2. **Primary Target File**: `django/contrib/admin/utils.py`
+   - **Function**: `display_for_field(value, field, empty_value_display)`
+
+3. **Logic Change**:
+   - Add a check for `isinstance(field, models.JSONField)` within the `if/elif` chain of `display_for_field`.
+   - If the field is a `JSONField`, use the field's `get_prep_value(value)` to ensure it is in a serializable state, and then use `json.dumps` with the field's specific `encoder` (if any) to produce a valid JSON string.
+   - Alternatively, following the suggestion in the task description, we can use the logic from `forms.JSONField.prepare_value` which handles `InvalidJSONInput` cases.
+   - Since `display_for_field` already has access to `models`, we will use `field.get_prep_value(value)` and `json.dumps`.
+
+4. **Detailed Steps**:
+   - Open `django/contrib/admin/utils.py`.
+   - Locate the `display_for_field` function (around line 380).
+   - Add `import json` at the top of the file if not already present (it is likely needed).
+   - Inside `display_for_field`, before the final `else` block, add:
+     ```python
+     elif isinstance(field, models.JSONField) and value is not None:
+         return field.get_prep_value(value)
+     ```
+     *Correction based on exploration*: `models.JSONField.get_prep_value` actually returns the Python object for some backends or a string for others. To be consistent and ensure valid JSON string output for the UI, we should use:
+     ```python
+     elif isinstance(field, models.JSONField) and value is not None:
+         return json.dumps(value, cls=field.encoder)
+     ```
+   - Ensure `json` is imported.
+
+5. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+- Create a reproduction script `reproduce_json_issue.py` that mocks a `models.JSONField` and calls `display_for_field` with a dictionary, asserting that the output contains double quotes (valid JSON) rather than single quotes.
+- Run the reproduction script: `python3 reproduce_json_issue.py`
+- Run existing admin utility tests: `python3 tests/runtests.py admin_utils`
+- Run existing JSONField tests to ensure no regressions: `python3 tests/runtests.py model_fields.test_jsonfield`
+
+*Note: If dependencies like `asgiref` or `pytz` are missing in the environment, use a simplified script that imports only the necessary logic from `django.contrib.admin.utils` and mocks the `field` object.*

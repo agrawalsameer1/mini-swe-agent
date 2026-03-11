@@ -1,0 +1,49 @@
+=== EXPLORATION HANDOFF ===
+
+# EXECUTION PLAN
+
+1. **Bug Hypothesis**: The inconsistency in `QuerySet.delete()` results occurs because the "standard" deletion path (used when cascades or signals are present) returns an empty dictionary `{}` when no objects are found, whereas the "fast-delete" path returns `{model_label: 0}`. The desired behavior is to always include the primary model's label with a count of 0 if no objects were deleted.
+
+2. **Primary Target File**: `django/db/models/query.py`
+3. **Target Function**: `QuerySet.delete`
+
+4. **Logic Change**:
+    - Locate the `delete` method in `django/db/models/query.py` (around line 710-745).
+    - After the call to `deleted, _rows_count = collector.delete()`, add logic to ensure the current model's label is present in the `_rows_count` dictionary.
+    - Use `_rows_count.setdefault(self.model._meta.label, 0)` to ensure the key exists without overwriting existing counts.
+
+5. **Cleanup and Implementation Steps**:
+    - Open `django/db/models/query.py`.
+    - Remove any corrupted code or duplicate lines between the `delete` and `_raw_delete` methods (specifically check lines 740-755 for leftover fragments like `deleted, _rows_count = collector.delete()` or orphaned `if` statements).
+    - Ensure the `delete` method ends as follows:
+      ```python
+      collector = Collector(using=del_query.db)
+      collector.collect(del_query)
+      deleted, _rows_count = collector.delete()
+
+      # Ensure the primary model is in the result even if 0 objects were deleted.
+      _rows_count.setdefault(self.model._meta.label, 0)
+
+      # Clear the result cache, in case this QuerySet gets reused.
+      self._result_cache = None
+      return deleted, _rows_count
+      ```
+    - Ensure proper indentation (the new line must be inside the `delete` method).
+
+6. **Final Step**: Run the validation commands defined in the VALIDATION PLAN.
+
+# VALIDATION PLAN
+
+- **Reproduction Check**: Run the reproduction script to verify that both "simple" models and models with foreign keys return `(0, {'model_label': 0})` when no objects are deleted.
+  ```bash
+  export PYTHONPATH=$PYTHONPATH:.
+  python3 tests/runtests.py delete.reproduce_issue
+  ```
+- **Existing Tests**: Run the existing deletion tests to ensure no regressions and that the "fast-delete" expectations are still met.
+  ```bash
+  python3 tests/runtests.py delete
+  ```
+- **Specific Regression Check**: Verify the specific test that previously confirmed the fast-delete behavior.
+  ```bash
+  python3 tests/runtests.py delete.tests.DeletionTests.test_fast_delete_empty_no_update_can_self_select
+  ```

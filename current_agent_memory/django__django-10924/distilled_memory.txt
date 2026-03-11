@@ -1,0 +1,69 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **`django/db/models/fields/__init__.py`**: Contains the `FilePathField` model field.
+    - `FilePathField.__init__`: Stores the `path` attribute.
+    - `FilePathField.deconstruct`: Handles serialization for migrations.
+    - `FilePathField.formfield`: Passes the `path` to the form field.
+- **`django/forms/fields.py`**: Contains the `FilePathField` form field.
+    - `FilePathField.__init__`: Uses `self.path` to populate choices via `os.scandir` or `os.walk`. This is where the primary failure occurs when `path` is a callable.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+- **Mechanism**: `FilePathField` (both model and form versions) currently expects the `path` argument to be a string or path-like object. When a callable is passed, `django.forms.fields.FilePathField.__init__` attempts to use it directly in filesystem operations (`os.scandir(self.path)` or `os.walk(self.path)`), resulting in a `TypeError` because a function is not a valid path.
+- **Migration Issue**: Users want the `path` to remain a callable in migration files so that the path can be determined dynamically at runtime (e.g., based on environment variables or settings) rather than being hardcoded to the value at the time `makemigrations` was run.
+- **Hypothesis**: 
+    1. `django.forms.fields.FilePathField.__init__` needs to check if `path` is callable and invoke it if so.
+    2. `django.db.models.fields.FilePathField.formfield` should ideally pass the callable to the form field, or resolve it if the form field isn't updated (though updating the form field is more robust for dynamic behavior).
+    3. `deconstruct` in the model field already handles callables correctly (as long as they are module-level functions), which satisfies the migration requirement.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+The following script reproduces the failure:
+
+```python
+import os
+import tempfile
+from django.conf import settings
+if not settings.configured:
+    settings.configure()
+
+from django.db import models
+from django import forms
+
+def get_path():
+    return tempfile.gettempdir()
+
+def test_model_field():
+    print("Testing models.FilePathField with callable path...")
+    field = models.FilePathField(path=get_path)
+    name, path, args, kwargs = field.deconstruct()
+    assert kwargs.get('path') == get_path
+    
+    try:
+        form_field = field.formfield()
+        print("Form field created successfully")
+    except Exception as e:
+        print(f"Form field creation failed: {e}")
+
+def test_form_field():
+    print("\nTesting forms.FilePathField with callable path...")
+    try:
+        field = forms.FilePathField(path=get_path)
+        print(f"Form field choices: {len(field.choices)}")
+    except Exception as e:
+        print(f"Form field initialization failed: {e}")
+
+if __name__ == "__main__":
+    test_model_field()
+    test_form_field()
+```
+
+**Execution Command:**
+`python3 reproduction.py`
+
+# FAILED PATCH ATTEMPTS
+
+- No patch attempts have been made yet. The exploration phase successfully identified the cause and locations for the fix.

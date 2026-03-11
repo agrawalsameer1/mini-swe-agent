@@ -1,0 +1,51 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/utils/http.py**: Contains the `parse_http_date` function (lines 158-192) which handles the parsing of HTTP date formats (RFC 1123, RFC 850, and asctime).
+- **django/utils/http.py:178-183**: The specific logic for handling two-digit years (primarily from RFC 850 dates) is located here.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The current implementation of `parse_http_date` uses a hardcoded cutoff for two-digit years:
+```python
+if year < 100:
+    if year < 70:
+        year += 2000
+    else:
+        year += 1900
+```
+This logic is outdated and does not comply with **RFC 7231, Section 7.1.1.1**, which states:
+> "Recipients of a timestamp value in rfc850-date format, which uses a two-digit year, MUST interpret a timestamp that appears to be more than 50 years in the future as representing the most recent year in the past that had the same last two digits."
+
+The current implementation uses a fixed pivot (70), whereas the RFC requires a sliding window based on the current date. As the current year progresses, the fixed pivot of 70 becomes increasingly incorrect.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+To reproduce the issue and validate the fix, a script should be used to check two-digit year parsing relative to the current year.
+
+**Reproduction Script Logic:**
+```python
+import datetime
+import calendar
+from django.utils.http import parse_http_date
+
+# Example: If current year is 2024
+# A year '75' would be 2075 (51 years in future), so it should be 1975.
+# A year '74' would be 2074 (50 years in future), so it should be 2074.
+
+def test_parsing():
+    # This requires mocking or calculating based on current time
+    now = datetime.datetime.utcnow()
+    # ... test logic ...
+```
+
+**Existing Tests:**
+```bash
+python manage.py test utils_tests.test_http
+```
+
+# FAILED PATCH ATTEMPTS
+
+*(No failed patch attempts recorded in the exploration phase.)*

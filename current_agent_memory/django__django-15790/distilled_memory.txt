@@ -1,0 +1,66 @@
+=== DISTILLED TASK MEMORY ===
+Persistent summary of key knowledge about the task gathered across all phases.
+
+# CONFIRMED RELEVANT FILES / CODE LOCATIONS
+
+- **django/core/checks/templates.py**: Contains the function `check_for_template_tags_with_the_same_name` which implements the `templates.E003` check. This function currently collects template tag libraries from both `TEMPLATES['OPTIONS']['libraries']` and `get_template_tag_modules()` (which scans `INSTALLED_APPS`) into a `defaultdict(list)`.
+- **django/template/backends/django.py**: Contains `get_template_tag_modules()`, which yields `(module_name, module_path)` pairs for all installed template tag libraries.
+
+# CONFIRMED BUG MECHANISM / WORKING HYPOTHESES
+
+The system check `templates.E003` incorrectly flags a conflict when a template tag library is registered both via `INSTALLED_APPS` (automatic discovery) and explicitly via the `libraries` option in `TEMPLATES` settings, even if they point to the exact same module path.
+
+**Mechanism:**
+1. `check_for_template_tags_with_the_same_name` iterates through `settings.TEMPLATES` and adds custom libraries to a `libraries` dictionary.
+2. It then calls `get_template_tag_modules()` and adds those libraries to the same dictionary.
+3. If a library name exists in both places (even with the same path), the list length for that name becomes > 1.
+4. The check triggers `E003` because it only checks the count of items, not their uniqueness or whether they point to different locations.
+
+# REPRODUCTION AND VALIDATION COMMANDS
+
+The following script reproduces the issue by configuring a library in both `INSTALLED_APPS` and `TEMPLATES['OPTIONS']['libraries']`:
+
+```python
+import os
+import sys
+import django
+from django.conf import settings
+
+if not settings.configured:
+    settings.configure(
+        INSTALLED_APPS=[
+            'django.contrib.contenttypes',
+            'django.contrib.admin',
+        ],
+        TEMPLATES=[
+            {
+                'BACKEND': 'django.template.backends.django.DjangoTemplates',
+                'DIRS': [],
+                'APP_DIRS': True,
+                'OPTIONS': {
+                    'libraries': {
+                        'admin_modify': 'django.contrib.admin.templatetags.admin_modify',
+                    },
+                },
+            },
+        ],
+        DATABASES={},
+    )
+    django.setup()
+
+from django.core.checks.templates import check_for_template_tags_with_the_same_name
+errors = check_for_template_tags_with_the_same_name(None)
+for error in errors:
+    print(f"ID: {error.id}, Msg: {error.msg}")
+
+if not errors:
+    print("No errors found.")
+```
+
+**Dependencies:**
+- `asgiref` (required by Django 4.2+)
+- `sqlparse` (required by Django's DB layer, though `DATABASES={}` can sometimes bypass the need if models aren't accessed).
+
+# FAILED PATCH ATTEMPTS
+
+No patch attempts have been made yet. The exploration phase successfully reproduced the issue and identified the logic flaw.
